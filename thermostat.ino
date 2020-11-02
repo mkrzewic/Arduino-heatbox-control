@@ -48,13 +48,10 @@ int8_t thermoResolution[nResolutionsT] =         {11,    10,     9};
 int8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
 
 struct Param_t {
-  DeviceAddress mainAddr   {0x28, 0xAA, 0x58, 0x48, 0x4B, 0x14, 0x01, 0xA3};
-  DeviceAddress heaterAddr {0x28, 0xAA, 0x6C, 0x79, 0x4B, 0x14, 0x01, 0xFF};
-  DeviceAddress relayAddr  {0x28, 0xAA, 0xE1, 0x43, 0x4B, 0x14, 0x01, 0x8B};
   float targetT{40.};
   float maxHeaterT{70.};
   float deltaHeaterT{10.};
-  float targetTdelta{1.};
+  float hysteresisT{.5};
   int8_t heatingMode{1}; //-1 or 1 for cooling/heating
   int8_t whichStepT{2};
 };
@@ -63,13 +60,13 @@ Param_t param{};
 
 unsigned long conversionDelay = 750;
 
-float currentT[2] = {0.};
-float heaterT[2] = {0.};
-float relayT[2] = {0.};
+float currentT = {0.};
+float heaterT = {0.};
+float relayT = {0.};
 float errT = {0.};
-int8_t slopeT[2] = {1,0}; //invalid value 0 needed for bootstrap
-int8_t slopeH[2] = {1,0}; //invalid value 0 needed for bootstrap
-bool running = {false};
+int8_t slopeT = {1}; //invalid value 0 needed for bootstrap
+int8_t slopeH = {1}; //invalid value 0 needed for bootstrap
+int8_t running = {1};
 bool saveSettings{false};
 int devCount{0};
 int devCountHeater{0};
@@ -98,7 +95,7 @@ struct UI_t {
   void tick() {redraw = true; lastChange = millis();}
 
   void error(const char* message ) {
-    running=false;
+    running=-1;
     errorMsg = message;
     state = State_t::error;
     lastChange = 0;
@@ -113,7 +110,7 @@ struct UI_t {
       case State_t::run:
         lcd.print("now:");
         lcd.setCursor(8,0);
-        lcd.print(currentT[0],displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
+        lcd.print(currentT,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
         lcd.setCursor(0,1);
         lcd.print("-->");
         lcd.setCursor(8,1);
@@ -129,13 +126,13 @@ struct UI_t {
         lcd.setCursor(0,0);
         param.heatingMode>0?lcd.print("Heater max T"):lcd.print("Cooler min T");
         lcd.setCursor(6,1);
-        lcd.print(param.maxHeaterT,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.maxHeaterT,displayPrecision[2]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setDeltaHeaterT:
         lcd.setCursor(0,0);
         param.heatingMode>0?lcd.print("Heater delta T"):lcd.print("Cooler delta T");
         lcd.setCursor(6,1);
-        lcd.print(param.deltaHeaterT,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.deltaHeaterT,displayPrecision[2]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setHeatingMode:
         lcd.print("Set cool <> heat");
@@ -145,7 +142,7 @@ struct UI_t {
       case State_t::setTargetDeltaT:
         lcd.print("Hysteresis");
         lcd.setCursor(6,1);
-        lcd.print(param.targetTdelta,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.hysteresisT,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setTemperatureStep:
         lcd.print("Temp resolution");
@@ -231,8 +228,8 @@ void initSensors() {
   if (devCount==0) {ui.error("no sensor"); return;}
   if (devCountRelay==0) {ui.error("relay sensor"); return;}
   thermo.setResolution(thermoResolution[param.whichStepT]);
-  thermoHeater.setResolution(9);
-  thermoRelay.setResolution(9);
+  thermoHeater.setResolution(thermoResolution[2]);
+  thermoRelay.setResolution(thermoResolution[2]);
 }
 
 void setup()
@@ -258,18 +255,18 @@ void setup()
   initSensors();
 
   thermo.requestTemperatures();
-  currentT[0] = param.mainAddr?thermo.getTempCByIndex(0):-127.;
+  currentT = thermo.getTempCByIndex(0);
 
   if (devCountHeater>0) {
     thermoHeater.requestTemperatures();
-    heaterT[0] = thermoHeater.getTempCByIndex(0);
+    heaterT = thermoHeater.getTempCByIndex(0);
   }
 
   thermoRelay.requestTemperatures();
-  relayT[0] = param.relayAddr?thermoRelay.getTempCByIndex(0):-127.;
+  relayT = thermoRelay.getTempCByIndex(0);
   conversionDelay = 750 / (1 << (12-thermoResolution[param.whichStepT]));
 
-  running = true;
+  running = 1;
 
 } // setup()
 
@@ -303,18 +300,18 @@ void loop()
         param.targetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.whichStepT];
         break;
       case State_t::setMaxHeaterT:
-        param.maxHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.whichStepT];
+        param.maxHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[2];
         if (param.maxHeaterT < param.targetT + param.deltaHeaterT) param.maxHeaterT = param.targetT + param.deltaHeaterT;
         break;
       case State_t::setDeltaHeaterT:
-        param.deltaHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.whichStepT];
+        param.deltaHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[2];
         break;
       case State_t::setHeatingMode:
         param.heatingMode = static_cast<int8_t>(encoder.getDirection());
         break;
       case State_t::setTargetDeltaT:
-        param.targetTdelta += static_cast<int8_t>(encoder.getDirection()) * stepT[param.whichStepT];
-        param.targetTdelta = param.targetTdelta<0?0:param.targetTdelta;
+        param.hysteresisT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.whichStepT];
+        param.hysteresisT = param.hysteresisT<0?0:param.hysteresisT;
         break;
       case State_t::setTemperatureStep:
         static int8_t dir{0};
@@ -392,7 +389,7 @@ void loop()
     thermo.setWaitForConversion(false);
     thermo.requestTemperatures();
 
-    if (devCountHeater) {
+    if (devCountHeater > 0) {
       thermoHeater.setWaitForConversion(false);
       thermoHeater.requestTemperatures();
     }
@@ -405,19 +402,27 @@ void loop()
 
   //read teperatures from sensors
   if (readTonce==1 && ((millis() - timeStartTConversion) > conversionDelay)) {
-    currentT[1] = currentT[0];
-    heaterT[1] = currentT[0];
-    relayT[1] = relayT[0];
     noInterrupts();
 
-    if (devCountHeater>0) {
-      heaterT[0] = thermoHeater.getTempCByIndex(0);
+    if (devCountHeater > 0) {
+      heaterT = thermoHeater.getTempCByIndex(0);
     }
 
-    currentT[0] = thermo.getTempCByIndex(0);
-    relayT[0] = thermoRelay.getTempCByIndex(0);
+    currentT = thermo.getTempCByIndex(0);
+    relayT = thermoRelay.getTempCByIndex(0);
 
-    //Serial.print(currentT[0]); Serial.print(" "); Serial.print(heaterT[0]);Serial.print(" "); Serial.println(relayT[0]);
+    //somehow -127 is what you get when something is diconnected.
+    //still have to figure out what to do about the 85.0 condition
+    if (currentT < -100.) {
+      ui.error("bad main sensor");
+    }
+    if (heaterT < -100.) {
+      ui.error("bad heater sensor");
+    }
+    if (relayT < -100.) {
+      ui.error("bad relay sensor");
+    }
+    //Serial.print(currentT); Serial.print(" "); Serial.print(heaterT);Serial.print(" "); Serial.println(relayT);
 
     interrupts();
     readTonce=0;
@@ -425,29 +430,32 @@ void loop()
   }
 
   //control the actual regulated temperature
-  if (slopeT[0]>0) {
+  if (slopeT>0) {
     //if we're on the rise, we flip sign when we cross higher threshhold
-    slopeT[0] *= (currentT[0] >= (param.targetT + param.targetTdelta)) ? -1 : 1;
+    slopeT *= (currentT >= (param.targetT + param.hysteresisT)) ? -1 : 1;
   } else {
     //if we're on decline, we flip when crossing lower bound
-    slopeT[0] *= (currentT[0] < (param.targetT - param.targetTdelta)) ? -1 : 1;
+    slopeT *= (currentT < (param.targetT - param.hysteresisT)) ? -1 : 1;
   }
 
   //control the heater temperature
-  if (slopeH[0]>0) {
+  static float halfdelta{0.};
+  halfdelta = param.deltaHeaterT/2.;
+  if (slopeH>0) {
     //if we're on the rise, we flip sign when we cross higher threshhold
-    slopeH[0] *= (heaterT[0] >= param.maxHeaterT) ? -1 : 1;
+    slopeH *= (heaterT > (param.maxHeaterT - param.heatingMode*halfdelta + halfdelta)) ? -1 : 1;
   } else {
     //if we're on decline, we flip when crossing lower bound (or upper if we're cooling)
-    slopeH[0] *= (heaterT[0] < (param.maxHeaterT - param.heatingMode*param.deltaHeaterT)) ? -1 : 1;
+    slopeH *= (heaterT <= (param.maxHeaterT - param.heatingMode*halfdelta - halfdelta)) ? -1 : 1;
   }
 
-  if ((slopeH[0] != slopeH[1]) || (slopeT[0] != slopeT[1]) || !running) {
-    //Serial.print("slopeH: "); Serial.print(slopeH[0] * param.heatingMode);Serial.print(" slopeT: ");Serial.println(slopeT[0]*param.heatingMode);
-    digitalWriteFast(relay1Pin, ((slopeT[0] * slopeH[0] * param.heatingMode > 0) && running) ? HIGH : LOW);
-    digitalWriteFast(relay2Pin, ((slopeT[0] * slopeH[0] * param.heatingMode > 0) && running) ? HIGH : LOW);
-    slopeH[1] = slopeH[0];
-    slopeT[1] = slopeT[0];
+  static int8_t heaterIsOn{0}, heaterWasOn{0};
+  heaterIsOn = slopeT * slopeH * param.heatingMode * running;
+  // no need to access the ahrdware on every iteration, do it only when something changes
+  if (heaterIsOn != heaterWasOn) {
+    //Serial.print("slopeH: "); Serial.print(slopeH * param.heatingMode);Serial.print(" slopeT: ");Serial.println(slopeT*param.heatingMode);
+    digitalWriteFast(relay1Pin, (heaterIsOn > 0) ? HIGH : LOW);
+    heaterWasOn = heaterIsOn;
   }
 
 } // loop ()
