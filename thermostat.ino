@@ -325,7 +325,7 @@ void loop()
         if (param.deltaHeaterT > abs(param.limitHeaterT - param.targetT)) {
           param.deltaHeaterT = abs(param.limitHeaterT - param.targetT);
         }
-        if (param.deltaHeaterT==0) param.deltaHeaterT += 0.001; //keep it from being zero
+        if (param.deltaHeaterT<stepT[iResolutionHeaterT]) param.deltaHeaterT = stepT[iResolutionHeaterT]; //keep it from being zero
         break;
       case State_t::setHeatingMode:
         param.heatingMode = static_cast<int8_t>(encoder.getDirection());
@@ -336,7 +336,7 @@ void loop()
         break;
       case State_t::setTargetDeltaT:
         param.hysteresisT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
-        param.hysteresisT = param.hysteresisT<=0?0.001:param.hysteresisT;
+        if (param.hysteresisT<stepT[param.iStepT]) { param.hysteresisT = stepT[param.iStepT]; }
         break;
       case State_t::setTemperatureStep:
         static int8_t dir{0};
