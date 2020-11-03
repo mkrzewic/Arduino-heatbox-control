@@ -349,6 +349,7 @@ void loop()
           param.iStepT = param.iStepT + dir;
         }
         thermoMain.setResolution(tempSensorResolution[param.iStepT]);
+        if (param.hysteresisT < stepT[param.iStepT]) { param.hysteresisT = stepT[param.iStepT]; }
         break;
       case State_t::saveSettings:
         static_cast<int8_t>(encoder.getDirection())==1 ? saveSettings=true : saveSettings=false ;
