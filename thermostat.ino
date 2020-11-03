@@ -34,6 +34,9 @@ OneWire oneWireRelay(oneWirePinRelay);
 DallasTemperature thermoMain(&oneWireMain);
 DallasTemperature thermoHeater(&oneWireHeater);
 DallasTemperature thermoRelay(&oneWireRelay);
+DeviceAddress addrMain;
+DeviceAddress addrHeater;
+DeviceAddress addrRelay;
 
 RotaryEncoder encoder(encoderPin1, encoderPin2);
 LiquidCrystal lcd(9,8,7,6,5,4);
@@ -70,7 +73,7 @@ int8_t slopeT = {1}; //invalid value 0 needed for bootstrap
 int8_t slopeH = {1}; //invalid value 0 needed for bootstrap
 int8_t running = {1};
 bool saveSettings{false};
-int devCount{0};
+int devCountMain{0};
 int devCountHeater{0};
 int devCountRelay{0};
 uint32_t eepromCRC{0};
@@ -214,11 +217,14 @@ void initSensors() {
   thermoMain.begin();
   thermoHeater.begin();
   thermoRelay.begin();
-  devCount = thermoMain.getDeviceCount();
+  devCountMain = thermoMain.getDeviceCount();
   devCountHeater = thermoHeater.getDeviceCount();
   devCountRelay = thermoRelay.getDeviceCount();
-  if (devCount==0) {ui.error("no sensor"); return;}
-  if (devCountRelay==0) {ui.error("relay sensor"); return;}
+  if (devCountMain==0) {ui.error("no main sensor");}
+  if (devCountRelay==0) {ui.error("no relay sensor");}
+  if (!thermoMain.getAddress(addrMain,0)) {ui.error("no main sensor");}
+  if (!thermoHeater.getAddress(addrHeater,0)) {}
+  if (!thermoRelay.getAddress(addrRelay,0)) {ui.error("no main sensor");}
   thermoMain.setResolution(tempSensorResolution[param.whichStepT]);
   thermoHeater.setResolution(tempSensorResolution[2]);
   thermoRelay.setResolution(tempSensorResolution[2]);
@@ -246,15 +252,13 @@ void setup()
   initSensors();
 
   thermoMain.requestTemperatures();
-  mainT = thermoMain.getTempCByIndex(0);
+  mainT = thermoMain.getTempC(addrMain);
 
-  if (devCountHeater>0) {
-    thermoHeater.requestTemperatures();
-    heaterT = thermoHeater.getTempCByIndex(0);
-  }
+  thermoHeater.requestTemperatures();
+  heaterT = thermoHeater.getTempC(addrHeater);
 
   thermoRelay.requestTemperatures();
-  relayT = thermoRelay.getTempCByIndex(0);
+  relayT = thermoRelay.getTemp(addrRelay);
 
   running = 1;
 
@@ -381,27 +385,27 @@ void loop()
   }
 
   // start conversion period for main
-  if ((millis() - timeStartHeaterTConversion)>thermoHeaterSamplingPeriod) {
-    if (devCountHeater > 0) {
-      timeStartHeaterTConversion = millis();
-      thermoHeater.setWaitForConversion(false);
+  if ((millis() - timeStartMainTConversion)>thermoMainSamplingPeriod) {
+    if (devCountMain > 0) {
+      timeStartMainTConversion = millis();
+      thermoMain.setWaitForConversion(false);
       noInterrupts();
-      thermoHeater.requestTemperatures();
+      thermoMain.requestTemperatures();
       interrupts();
-      readHeaterTonce = 1;
+      readMainTonce = 1;
     }
   }
 
   //read teperatures from main sensor
-  if (readHeaterTonce==1 && ((millis() - timeStartHeaterTConversion) > thermoHeater.millisToWaitForConversion())) {
+  if (readMainTonce==1 && ((millis() - timeStartMainTConversion) > thermoMain.millisToWaitForConversion())) {
 
     noInterrupts();
-    mainT = thermoHeater.getTempCByIndex(0);
+    mainT = thermoMain.getTempC(addrMain);
     interrupts();
     if (mainT == DEVICE_DISCONNECTED_C) {
       ui.error("bad main sensor");
     }
-    readHeaterTonce=0;
+    readMainTonce=0;
     ui.redraw = true;
   }
 
@@ -421,38 +425,36 @@ void loop()
   if (readHeaterTonce==1 && ((millis() - timeStartHeaterTConversion) > thermoHeater.millisToWaitForConversion())) {
 
     noInterrupts();
-    heaterT = thermoHeater.getTempCByIndex(0);
+    heaterT = thermoHeater.getTempC(addrHeater);
     interrupts();
     if (heaterT == DEVICE_DISCONNECTED_C) {
       ui.error("bad heater sensor");
     }
     readHeaterTonce=0;
-    ui.redraw = true;
   }
 
   // start conversion period for relay
-  if ((millis() - timeStartHeaterTConversion)>thermoHeaterSamplingPeriod) {
-    if (devCountHeater > 0) {
-      timeStartHeaterTConversion = millis();
-      thermoHeater.setWaitForConversion(false);
+  if ((millis() - timeStartRelayTConversion)>thermoRelaySamplingPeriod) {
+    if (devCountRelay > 0) {
+      timeStartRelayTConversion = millis();
+      thermoRelay.setWaitForConversion(false);
       noInterrupts();
-      thermoHeater.requestTemperatures();
+      thermoRelay.requestTemperatures();
       interrupts();
-      readHeaterTonce = 1;
+      readRelayTonce = 1;
     }
   }
 
   //read teperatures from relay sensor
-  if (readHeaterTonce==1 && ((millis() - timeStartHeaterTConversion) > thermoHeater.millisToWaitForConversion())) {
+  if (readRelayTonce==1 && ((millis() - timeStartRelayTConversion) > thermoRelay.millisToWaitForConversion())) {
 
     noInterrupts();
-    relayT = thermoHeater.getTempCByIndex(0);
+    relayT = thermoRelay.getTempC(addrRelay);
     interrupts();
     if (relayT == DEVICE_DISCONNECTED_C) {
       ui.error("bad relay sensor");
     }
-    readHeaterTonce=0;
-    ui.redraw = true;
+    readRelayTonce=0;
   }
 
   //control the actual regulated temperature
