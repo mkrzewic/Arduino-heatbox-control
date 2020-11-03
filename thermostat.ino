@@ -17,8 +17,8 @@ constexpr int8_t oneWirePinMain = A1;
 constexpr int8_t oneWirePinHeater = A2;
 constexpr int8_t oneWirePinRelay = A3;
 
-constexpr int8_t relay1Pin = 13;
-constexpr int8_t relay2Pin = A0;
+constexpr int8_t relay1Pin = A0;
+constexpr int8_t relay2Pin = 13;
 //constexpr int8_t thermistorPin = A1;
 
 //
@@ -28,6 +28,7 @@ constexpr unsigned long thermoRelaySamplingPeriod = 500; //ms
 constexpr uint8_t iResolutionHeaterT = 2;
 constexpr uint8_t iResolutionRelayT = 2;
 constexpr unsigned int uiSpringBackDelay = 3500;
+constexpr float maxRelayT = 99;
 
 //each sensor on a separate bus to avoid complications with sddresses when exchanging sensors
 OneWire oneWireMain(oneWirePinMain);
@@ -104,6 +105,8 @@ struct UI_t {
   void tick() {redraw = true; lastChange = millis();}
 
   void error(const char* message ) {
+    digitalWriteFast(relay1Pin,LOW);
+    digitalWriteFast(relay2Pin,LOW);
     running=-1;
     errorMsg = message;
     state = State_t::error;
@@ -491,6 +494,7 @@ void loop()
     slopeH *= (heaterT <= (param.limitHeaterT - param.heatingMode*halfdelta - halfdelta)) ? -1 : 1;
   }
 
+  //control main relay
   static int8_t heaterIsOn{0}, heaterWasOn{0};
   heaterIsOn = slopeT * slopeH * param.heatingMode * running;
   // no need to access the ahrdware on every iteration, do it only when something changes
@@ -499,6 +503,13 @@ void loop()
     heaterWasOn = heaterIsOn;
   }
 
+  static int relay2Now{HIGH};
+  relay2Now = (relayT > maxRelayT)?LOW:HIGH;
+  static int relay2Then{relay2Now-1};
+  if (relay2Now != relay2Then) {
+    digitalWriteFast(relay2Pin, relay2Now);
+    relay2Then = relay2Now;
+  }
 } // loop ()
 
 // The End
