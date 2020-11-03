@@ -58,8 +58,6 @@ struct Param_t {
 
 Param_t param{};
 
-unsigned long conversionDelay = 750;
-
 float currentT = {0.};
 float heaterT = {0.};
 float relayT = {0.};
@@ -264,7 +262,6 @@ void setup()
 
   thermoRelay.requestTemperatures();
   relayT = thermoRelay.getTempCByIndex(0);
-  conversionDelay = 750 / (1 << (12-thermoResolution[param.whichStepT]));
 
   running = 1;
 
@@ -323,7 +320,6 @@ void loop()
         } else {
           param.whichStepT = param.whichStepT + dir;
         }
-        conversionDelay = 750 / (1 << (12-thermoResolution[param.whichStepT]));
         thermo.setResolution(thermoResolution[param.whichStepT]);
         break;
       case State_t::saveSettings:
@@ -401,7 +397,7 @@ void loop()
   }
 
   //read teperatures from sensors
-  if (readTonce==1 && ((millis() - timeStartTConversion) > conversionDelay)) {
+  if (readTonce==1 && ((millis() - timeStartTConversion) > thermo.millisToWaitForConversion())) {
     noInterrupts();
 
     if (devCountHeater > 0) {
