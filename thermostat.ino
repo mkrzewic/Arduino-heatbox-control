@@ -25,6 +25,8 @@ constexpr int8_t relay2Pin = A0;
 constexpr unsigned long thermoMainSamplingPeriod = 2000; //ms
 constexpr unsigned long thermoHeaterSamplingPeriod = 500; //ms
 constexpr unsigned long thermoRelaySamplingPeriod = 500; //ms
+constexpr uint8_t iResolutionHeaterT = 2;
+constexpr uint8_t iResolutionRelayT = 2;
 constexpr unsigned int uiSpringBackDelay = 3500;
 
 //each sensor on a separate bus to avoid complications with sddresses when exchanging sensors
@@ -51,7 +53,7 @@ uint8_t readRelayTonce{1};
 
 constexpr int8_t nResolutionsT = 3;
 float  stepT[nResolutionsT] =                    {0.125, 0.25, 0.5};
-int8_t tempSensorResolution[nResolutionsT] =         {11,    10,     9};
+int8_t tempSensorResolution[nResolutionsT] =     {11,    10,     9};
 int8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
 
 struct Param_t {
@@ -60,7 +62,7 @@ struct Param_t {
   float deltaHeaterT{10.};
   float hysteresisT{.5};
   int8_t heatingMode{1}; //-1 or 1 for cooling/heating
-  int8_t whichStepT{2};
+  uint8_t iStepT{2};
 };
 
 Param_t param{};
@@ -86,7 +88,7 @@ unsigned long timeStartRelayTConversion{0};
 
 enum class State_t {run, setT, setLimitHeaterT, setDeltaHeaterT, error, man,
                     setHeatingMode, setTargetDeltaT, setTemperatureStep,
-                    saveSettings};
+                    saveSettings, showTemperatures};
 struct UI_t {
   unsigned long lastChange{0};
   State_t state{State_t::run};
@@ -117,29 +119,29 @@ struct UI_t {
       case State_t::run:
         lcd.print("now:");
         lcd.setCursor(8,0);
-        lcd.print(mainT,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
+        lcd.print(mainT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         lcd.setCursor(0,1);
         lcd.print("-->");
         lcd.setCursor(8,1);
-        lcd.print(param.targetT,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.targetT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setT:
         lcd.setCursor(0,0);
         lcd.print("Set temperature");
         lcd.setCursor(6,2);
-        lcd.print(param.targetT,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.targetT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setLimitHeaterT:
         lcd.setCursor(0,0);
         param.heatingMode>0?lcd.print("Heater max T"):lcd.print("Cooler min T");
         lcd.setCursor(6,1);
-        lcd.print(param.limitHeaterT,displayPrecision[2]);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.limitHeaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setDeltaHeaterT:
         lcd.setCursor(0,0);
         param.heatingMode>0?lcd.print("Heater delta T"):lcd.print("Cooler delta T");
         lcd.setCursor(6,1);
-        lcd.print(param.deltaHeaterT,displayPrecision[2]);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.deltaHeaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setHeatingMode:
         lcd.print("Set cool <> heat");
@@ -149,12 +151,21 @@ struct UI_t {
       case State_t::setTargetDeltaT:
         lcd.print("Hysteresis");
         lcd.setCursor(6,1);
-        lcd.print(param.hysteresisT,displayPrecision[param.whichStepT]);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.hysteresisT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setTemperatureStep:
         lcd.print("Temp resolution");
         lcd.setCursor(6, 1);
-        lcd.print(stepT[param.whichStepT], displayPrecision[param.whichStepT]);
+        lcd.print(stepT[param.iStepT], displayPrecision[param.iStepT]);
+        break;
+      case State_t::showTemperatures:
+        lcd.print("heater:");
+        lcd.setCursor(8,0);
+        lcd.print(heaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
+        lcd.setCursor(0,1);
+        lcd.print("relay:");
+        lcd.setCursor(8,1);
+        lcd.print(relayT,displayPrecision[iResolutionRelayT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::saveSettings:
         lcd.print("Save as defaults");
@@ -225,9 +236,9 @@ void initSensors() {
   if (!thermoMain.getAddress(addrMain,0)) {ui.error("no main sensor");}
   if (!thermoHeater.getAddress(addrHeater,0)) {}
   if (!thermoRelay.getAddress(addrRelay,0)) {ui.error("no main sensor");}
-  thermoMain.setResolution(tempSensorResolution[param.whichStepT]);
-  thermoHeater.setResolution(tempSensorResolution[2]);
-  thermoRelay.setResolution(tempSensorResolution[2]);
+  thermoMain.setResolution(tempSensorResolution[param.iStepT]);
+  thermoHeater.setResolution(tempSensorResolution[iResolutionHeaterT]);
+  thermoRelay.setResolution(tempSensorResolution[iResolutionRelayT]);
 }
 
 void setup()
@@ -291,16 +302,16 @@ void loop()
         ui.changeState(State_t::man);
         break;
       case State_t::setT:
-        param.targetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.whichStepT];
+        param.targetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
         break;
       case State_t::setLimitHeaterT:
-        param.limitHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[2];
+        param.limitHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionHeaterT];
         if (param.heatingMode*param.limitHeaterT < param.heatingMode*param.targetT + param.deltaHeaterT) {
           param.limitHeaterT = param.targetT + param.heatingMode*param.deltaHeaterT;
         }
         break;
       case State_t::setDeltaHeaterT:
-        param.deltaHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[2];
+        param.deltaHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionHeaterT];
         if (param.deltaHeaterT > abs(param.limitHeaterT - param.targetT)) {
           param.deltaHeaterT = abs(param.limitHeaterT - param.targetT);
         }
@@ -313,20 +324,20 @@ void loop()
         }
         break;
       case State_t::setTargetDeltaT:
-        param.hysteresisT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.whichStepT];
+        param.hysteresisT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
         param.hysteresisT = param.hysteresisT<0?0:param.hysteresisT;
         break;
       case State_t::setTemperatureStep:
         static int8_t dir{0};
         dir = static_cast<int8_t>(encoder.getDirection());
-        if ((dir > 0) && (param.whichStepT == nResolutionsT-1)) {
+        if ((dir > 0) && (param.iStepT == nResolutionsT-1)) {
 
-        } else if ((dir < 0) && (param.whichStepT == 0)) {
+        } else if ((dir < 0) && (param.iStepT == 0)) {
 
         } else {
-          param.whichStepT = param.whichStepT + dir;
+          param.iStepT = param.iStepT + dir;
         }
-        thermoMain.setResolution(tempSensorResolution[param.whichStepT]);
+        thermoMain.setResolution(tempSensorResolution[param.iStepT]);
         break;
       case State_t::saveSettings:
         static_cast<int8_t>(encoder.getDirection())==1 ? saveSettings=true : saveSettings=false ;
@@ -371,6 +382,9 @@ void loop()
         break;
       case State_t::saveSettings:
         if (saveSettings) { SaveSettings(); ui.changeState(State_t::run);}
+        ui.changeState(State_t::showTemperatures);
+        break;
+      case State_t::showTemperatures:
         ui.changeState(State_t::run);
         break;
       case State_t::error:
