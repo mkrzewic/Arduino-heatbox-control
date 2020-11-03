@@ -17,8 +17,8 @@ constexpr int8_t oneWirePinMain = A1;
 constexpr int8_t oneWirePinHeater = A2;
 constexpr int8_t oneWirePinRelay = A3;
 
-constexpr int8_t relay1Pin = A0;
-constexpr int8_t relay2Pin = 13;
+constexpr int8_t relaySSRpin = 13;
+constexpr int8_t relayClickPin = A0;
 //constexpr int8_t thermistorPin = A1;
 
 //
@@ -28,7 +28,7 @@ constexpr unsigned long thermoRelaySamplingPeriod = 500; //ms
 constexpr uint8_t iResolutionHeaterT = 2;
 constexpr uint8_t iResolutionRelayT = 2;
 constexpr unsigned int uiSpringBackDelay = 3500;
-constexpr float maxRelayT = 99;
+constexpr float maxRelayT = 99.;
 
 //each sensor on a separate bus to avoid complications with sddresses when exchanging sensors
 OneWire oneWireMain(oneWirePinMain);
@@ -48,9 +48,9 @@ volatile uint8_t modeButton[2] = {1};
 int8_t knobPosition[2] = {0};
 volatile unsigned long bounceTimer{0};
 volatile bool readEncoderButton{false};
-uint8_t readMainTonce{1};
-uint8_t readHeaterTonce{1};
-uint8_t readRelayTonce{1};
+uint8_t readMainTonce{0};
+uint8_t readHeaterTonce{0};
+uint8_t readRelayTonce{0};
 
 constexpr int8_t nResolutionsT = 3;
 float  stepT[nResolutionsT] =                    {0.125, 0.25, 0.5};
@@ -105,8 +105,8 @@ struct UI_t {
   void tick() {redraw = true; lastChange = millis();}
 
   void error(const char* message ) {
-    digitalWriteFast(relay1Pin,LOW);
-    digitalWriteFast(relay2Pin,LOW);
+    digitalWriteFast(relaySSRpin,LOW);
+    digitalWriteFast(relayClickPin,HIGH);
     running=-1;
     errorMsg = message;
     state = State_t::error;
@@ -247,6 +247,7 @@ void initSensors() {
 void setup()
 {
   lcd.begin(16,2);
+  //Serial.begin(9600);
 
   if (!RestoreSettings()) {
     lcd.clear();
@@ -256,8 +257,6 @@ void setup()
   }
 
   pinMode(encoderButtonPin, INPUT_PULLUP);
-  pinMode(relay1Pin, OUTPUT);
-  pinMode(relay2Pin, OUTPUT);
 
   //enable interrupts on bank b
   PCICR |= (1 << PCIE0);
@@ -265,17 +264,25 @@ void setup()
 
   initSensors();
 
+  // switch the main switch ON, the delay before switching the SSR
+  // is covered by the reading of temperatures below (>90ms);
+  pinMode(relayClickPin, OUTPUT);  //goes to LOW by default, switching on the relay
+  pinMode(relaySSRpin, OUTPUT);
+
+  //initial read of temperatures.
+  thermoMain.setWaitForConversion(true);
   thermoMain.requestTemperatures();
   mainT = thermoMain.getTempC(addrMain);
 
+  thermoHeater.setWaitForConversion(true);
   thermoHeater.requestTemperatures();
   heaterT = thermoHeater.getTempC(addrHeater);
 
+  thermoRelay.setWaitForConversion(true);
   thermoRelay.requestTemperatures();
   relayT = thermoRelay.getTemp(addrRelay);
 
   running = 1;
-
 } // setup()
 
 
@@ -318,6 +325,7 @@ void loop()
         if (param.deltaHeaterT > abs(param.limitHeaterT - param.targetT)) {
           param.deltaHeaterT = abs(param.limitHeaterT - param.targetT);
         }
+        if (param.deltaHeaterT==0) param.deltaHeaterT += 0.001; //keep it from being zero
         break;
       case State_t::setHeatingMode:
         param.heatingMode = static_cast<int8_t>(encoder.getDirection());
@@ -328,7 +336,7 @@ void loop()
         break;
       case State_t::setTargetDeltaT:
         param.hysteresisT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
-        param.hysteresisT = param.hysteresisT<0?0:param.hysteresisT;
+        param.hysteresisT = param.hysteresisT<=0?0.001:param.hysteresisT;
         break;
       case State_t::setTemperatureStep:
         static int8_t dir{0};
@@ -462,6 +470,7 @@ void loop()
     }
   }
 
+  static uint8_t skipRelayCheck{0};
   //read teperatures from relay sensor
   if (readRelayTonce==1 && ((millis() - timeStartRelayTConversion) > thermoRelay.millisToWaitForConversion())) {
 
@@ -471,6 +480,10 @@ void loop()
     if (relayT == DEVICE_DISCONNECTED_C) {
       ui.error("bad relay sensor");
     }
+    static uint8_t nWeirdValuesRelayT{0};
+    if (relayT > 150.) { nWeirdValuesRelayT++; skipRelayCheck = 1;}
+    else { skipRelayCheck = 0; }
+    if (nWeirdValuesRelayT>10) ui.error("relay sensor weird");
     readRelayTonce=0;
   }
 
@@ -480,7 +493,7 @@ void loop()
     slopeT *= (mainT >= (param.targetT + param.hysteresisT)) ? -1 : 1;
   } else {
     //if we're on decline, we flip when crossing lower bound
-    slopeT *= (mainT < (param.targetT - param.hysteresisT)) ? -1 : 1;
+    slopeT *= (mainT <= (param.targetT - param.hysteresisT)) ? -1 : 1;
   }
 
   //control the heater temperature
@@ -488,7 +501,7 @@ void loop()
   halfdelta = param.deltaHeaterT/2.;
   if (slopeH>0) {
     //if we're on the rise, we flip sign when we cross higher threshhold
-    slopeH *= (heaterT > (param.limitHeaterT - param.heatingMode*halfdelta + halfdelta)) ? -1 : 1;
+    slopeH *= (heaterT >= (param.limitHeaterT - param.heatingMode*halfdelta + halfdelta)) ? -1 : 1;
   } else {
     //if we're on decline, we flip when crossing lower bound (or upper if we're cooling)
     slopeH *= (heaterT <= (param.limitHeaterT - param.heatingMode*halfdelta - halfdelta)) ? -1 : 1;
@@ -498,17 +511,25 @@ void loop()
   static int8_t heaterIsOn{0}, heaterWasOn{0};
   heaterIsOn = slopeT * slopeH * param.heatingMode * running;
   // no need to access the ahrdware on every iteration, do it only when something changes
-  if (heaterIsOn != heaterWasOn) {
-    digitalWriteFast(relay1Pin, (heaterIsOn > 0) ? HIGH : LOW);
+  if (heaterIsOn != heaterWasOn || !running) {
+    digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
     heaterWasOn = heaterIsOn;
   }
 
-  static int relay2Now{HIGH};
-  relay2Now = (relayT > maxRelayT)?LOW:HIGH;
-  static int relay2Then{relay2Now-1};
-  if (relay2Now != relay2Then) {
-    digitalWriteFast(relay2Pin, relay2Now);
-    relay2Then = relay2Now;
+  // this is a safety feature, it's ok to use delay here
+  // it will only be triggered in a rare condition
+  static int relayClickNow{HIGH};
+  static int relayClickThen{LOW};
+  relayClickNow = (relayT > maxRelayT)?HIGH:LOW;
+  if (relayClickNow != relayClickThen && (skipRelayCheck>0)) {
+    if (relayClickNow == LOW) {
+      digitalWriteFast(relayClickPin, relayClickNow);
+      running = 1;
+    } else {
+      digitalWriteFast(relayClickPin, relayClickNow);
+      running = -1;
+    }
+    relayClickThen = relayClickNow;
   }
 } // loop ()
 
