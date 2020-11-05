@@ -9,9 +9,9 @@
 #include "thermistor.h"
 
 //pin defs
-constexpr int8_t encoderPin1 = 12;
-constexpr int8_t encoderPin2 = 11;
-constexpr int8_t encoderButtonPin = 10;
+constexpr int8_t encoderPin1 = 11;
+constexpr int8_t encoderPin2 = 10;
+constexpr int8_t encoderButtonPin = 12;
 
 constexpr int8_t oneWirePinMain = A1;
 constexpr int8_t oneWirePinHeater = A2;
