@@ -6,7 +6,6 @@
 #undef REQUIRESALARMS
 #include <EEPROM.h>
 #include <CRC32.h>
-#include "thermistor.h"
 
 //pin defs
 constexpr int8_t encoderPin1 = 11;
@@ -28,7 +27,6 @@ constexpr unsigned long thermoRelaySamplingPeriod = 500; //ms
 constexpr uint8_t iResolutionHeaterT = 2;
 constexpr uint8_t iResolutionRelayT = 2;
 constexpr unsigned int uiSpringBackDelay = 3500;
-constexpr float maxRelayT = 99.;
 
 //each sensor on a separate bus to avoid complications with sddresses when exchanging sensors
 OneWire oneWireMain(oneWirePinMain);
@@ -64,6 +62,7 @@ struct Param_t {
   float hysteresisT{.5};
   int8_t heatingMode{1}; //-1 or 1 for cooling/heating
   uint8_t iStepT{2};
+  float maxRelayT = 99.;
 };
 
 Param_t param{};
@@ -89,7 +88,7 @@ unsigned long timeStartRelayTConversion{0};
 
 enum class State_t {run, setT, setLimitHeaterT, setDeltaHeaterT, error, man,
                     setHeatingMode, setTargetDeltaT, setTemperatureStep,
-                    saveSettings, showTemperatures};
+                    saveSettings, showTemperatures,  setLimitRelayT};
 struct UI_t {
   unsigned long lastChange{0};
   State_t state{State_t::run};
@@ -173,6 +172,11 @@ struct UI_t {
       case State_t::saveSettings:
         lcd.print("Save as defaults");
         lcd.setCursor(2,1); (saveSettings)?lcd.print("press to save"):lcd.print("no");
+        break;
+      case State_t::setLimitRelayT:
+        lcd.print("Max relay temp");
+        lcd.setCursor(8,1);
+        lcd.print(param.maxRelayT);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::error:
         lcd.setCursor(0,0);
@@ -354,6 +358,8 @@ void loop()
       case State_t::saveSettings:
         static_cast<int8_t>(encoder.getDirection())==1 ? saveSettings=true : saveSettings=false ;
         break;
+      case State_t::setLimitRelayT:
+        param.maxRelayT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionRelayT];
       default:
         break;
     }
@@ -397,6 +403,9 @@ void loop()
         ui.changeState(State_t::showTemperatures);
         break;
       case State_t::showTemperatures:
+        ui.changeState(State_t::setLimitRelayT);
+        break;
+      case State_t::setLimitRelayT:
         ui.changeState(State_t::run);
         break;
       case State_t::error:
@@ -521,7 +530,7 @@ void loop()
   // it will only be triggered in a rare condition
   static int relayClickNow{HIGH};
   static int relayClickThen{LOW};
-  relayClickNow = (relayT > maxRelayT)?HIGH:LOW;
+  relayClickNow = (relayT > param.maxRelayT)?HIGH:LOW;
   if (relayClickNow != relayClickThen && (skipRelayCheck>0)) {
     if (relayClickNow == LOW) {
       digitalWriteFast(relayClickPin, relayClickNow);
