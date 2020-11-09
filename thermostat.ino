@@ -119,9 +119,13 @@ struct UI_t {
     lcd.clear();
     switch(state) {
       case State_t::run:
+        if (running==-1 && relayT > param.maxRelayT) {
+          lcd.print("relay overheat");
+        } else {
         lcd.print("now:");
         lcd.setCursor(8,0);
         lcd.print(mainT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
+        }
         lcd.setCursor(0,1);
         lcd.print("-->");
         lcd.setCursor(8,1);
@@ -480,7 +484,7 @@ void loop()
     }
   }
 
-  static uint8_t skipRelayCheck{0};
+  static int8_t skipRelayCheck{0};
   //read teperatures from relay sensor
   if (readRelayTonce==1 && ((millis() - timeStartRelayTConversion) > thermoRelay.millisToWaitForConversion())) {
 
@@ -492,7 +496,7 @@ void loop()
     }
     static uint8_t nWeirdValuesRelayT{0};
     if (relayT > 150.) { nWeirdValuesRelayT++; skipRelayCheck = 1;}
-    else { skipRelayCheck = 0; }
+    else { skipRelayCheck = -1; }
     if (nWeirdValuesRelayT>10) ui.error("relay sensor weird");
     readRelayTonce=0;
   }
@@ -531,7 +535,7 @@ void loop()
   static int relayClickNow{HIGH};
   static int relayClickThen{LOW};
   relayClickNow = (relayT > param.maxRelayT)?HIGH:LOW;
-  if (relayClickNow != relayClickThen && (skipRelayCheck>0)) {
+  if (relayClickNow != relayClickThen && (skipRelayCheck<0)) {
     if (relayClickNow == LOW) {
       digitalWriteFast(relayClickPin, relayClickNow);
       running = 1;
