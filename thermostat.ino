@@ -58,7 +58,6 @@ int8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
 struct Param_t {
   float targetT{40.};
   float limitHeaterT{70.};
-  float deltaHeaterT{10.};
   float hysteresisT{.5};
   int8_t heatingMode{1}; //-1 or 1 for cooling/heating
   uint8_t iStepT{2};
@@ -67,6 +66,8 @@ struct Param_t {
 
 Param_t param{};
 
+float heaterMaxT{0.};
+float heaterMinT(0.);
 float mainT = {0.};
 float heaterT = {0.};
 float relayT = {0.};
@@ -86,7 +87,7 @@ unsigned long timeStartMainTConversion{0};
 unsigned long timeStartHeaterTConversion{0};
 unsigned long timeStartRelayTConversion{0};
 
-enum class State_t {run, setT, setLimitHeaterT, setDeltaHeaterT, error, man,
+enum class State_t {run, setT, setLimitHeaterT, error, man,
                     setHeatingMode, setTargetDeltaT, setTemperatureStep,
                     saveSettings, showTemperatures,  setLimitRelayT};
 struct UI_t {
@@ -142,12 +143,6 @@ struct UI_t {
         param.heatingMode>0?lcd.print("Heater max T"):lcd.print("Cooler min T");
         lcd.setCursor(6,1);
         lcd.print(param.limitHeaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
-        break;
-      case State_t::setDeltaHeaterT:
-        lcd.setCursor(0,0);
-        param.heatingMode>0?lcd.print("Heater delta T"):lcd.print("Cooler delta T");
-        lcd.setCursor(6,1);
-        lcd.print(param.deltaHeaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setHeatingMode:
         lcd.print("Set cool <> heat");
@@ -290,6 +285,8 @@ void setup()
   thermoRelay.requestTemperatures();
   relayT = thermoRelay.getTemp(addrRelay);
 
+  heaterMaxT = max(param.targetT, param.limitHeaterT);
+  heaterMinT = min(param.targetT, param.limitHeaterT);
   running = 1;
 } // setup()
 
@@ -316,31 +313,20 @@ void loop()
     ui.tick();
     switch (ui.state) {
       case State_t::run:
-        encoder.getDirection();
-        ui.changeState(State_t::man);
+        if  (encoder.getDirection() == RotaryEncoder::Direction::CLOCKWISE) {
+          ui.changeState(State_t::man);
+        } else {
+          ui.changeState(State_t::showTemperatures);
+        }
         break;
       case State_t::setT:
         param.targetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
         break;
       case State_t::setLimitHeaterT:
         param.limitHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionHeaterT];
-        if (param.heatingMode*param.limitHeaterT < param.heatingMode*param.targetT + param.deltaHeaterT) {
-          param.limitHeaterT = param.targetT + param.heatingMode*param.deltaHeaterT;
-        }
-        break;
-      case State_t::setDeltaHeaterT:
-        param.deltaHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionHeaterT];
-        if (param.deltaHeaterT > abs(param.limitHeaterT - param.targetT)) {
-          param.deltaHeaterT = abs(param.limitHeaterT - param.targetT);
-        }
-        if (param.deltaHeaterT<stepT[iResolutionHeaterT]) param.deltaHeaterT = stepT[iResolutionHeaterT]; //keep it from being zero
         break;
       case State_t::setHeatingMode:
         param.heatingMode = static_cast<int8_t>(encoder.getDirection());
-        if (param.heatingMode*param.limitHeaterT < param.heatingMode*param.targetT + param.deltaHeaterT) {
-          param.limitHeaterT = param.targetT + param.heatingMode*param.deltaHeaterT;
-          ui.changeState(State_t::setLimitHeaterT);
-        }
         break;
       case State_t::setTargetDeltaT:
         param.hysteresisT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
@@ -364,9 +350,17 @@ void loop()
         break;
       case State_t::setLimitRelayT:
         param.maxRelayT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionRelayT];
+        break;
+      case State_t::showTemperatures:
+        ui.changeState(State_t::man);
+        break;
       default:
         break;
     }
+    float limitHeaterOther{0.};
+    limitHeaterOther = (param.targetT + param.limitHeaterT)/2.;
+    heaterMaxT = max(limitHeaterOther, param.limitHeaterT);
+    heaterMinT = min(limitHeaterOther, param.limitHeaterT);
   }
 
   if ((ui.lastChange != 0) && ((millis()-ui.lastChange) > uiSpringBackDelay)) {
@@ -388,34 +382,30 @@ void loop()
         ui.changeState(State_t::setLimitHeaterT);
         break;
       case State_t::setLimitHeaterT:
-        ui.changeState(State_t::setDeltaHeaterT);
-        break;
-      case State_t::setDeltaHeaterT:
-        ui.changeState(State_t::setTemperatureStep);
-        break;
-      case State_t::setTemperatureStep:
         ui.changeState(State_t::setTargetDeltaT);
         break;
       case State_t::setTargetDeltaT:
+        ui.changeState(State_t::setTemperatureStep);
+        break;
+      case State_t::setTemperatureStep:
         ui.changeState(State_t::setHeatingMode);
         break;
       case State_t::setHeatingMode:
+        ui.changeState(State_t::setLimitRelayT);
+        break;
+      case State_t::setLimitRelayT:
         ui.changeState(State_t::saveSettings);
         break;
       case State_t::saveSettings:
         if (saveSettings) { SaveSettings(); ui.changeState(State_t::run);}
-        ui.changeState(State_t::showTemperatures);
-        break;
-      case State_t::showTemperatures:
-        ui.changeState(State_t::setLimitRelayT);
-        break;
-      case State_t::setLimitRelayT:
         ui.changeState(State_t::run);
         break;
       case State_t::error:
         break;
       case State_t::man:
         ui.changeState(State_t::setT);
+        break;
+      case State_t::showTemperatures:
         break;
       default:
         break;
@@ -511,38 +501,36 @@ void loop()
   }
 
   //control the heater temperature
-  static float halfdelta{0.};
-  halfdelta = param.deltaHeaterT/2.;
   if (slopeH>0) {
     //if we're on the rise, we flip sign when we cross higher threshhold
-    slopeH *= (heaterT >= (param.limitHeaterT - param.heatingMode*halfdelta + halfdelta)) ? -1 : 1;
+    slopeH *= (heaterT >= heaterMaxT) ? -1 : 1;
   } else {
     //if we're on decline, we flip when crossing lower bound (or upper if we're cooling)
-    slopeH *= (heaterT <= (param.limitHeaterT - param.heatingMode*halfdelta - halfdelta)) ? -1 : 1;
+    slopeH *= (heaterT <= heaterMinT) ? -1 : 1;
   }
 
   //control main relay
   static int8_t heaterIsOn{0}, heaterWasOn{0};
-  heaterIsOn = slopeT * slopeH * param.heatingMode * running;
-  // no need to access the ahrdware on every iteration, do it only when something changes
+  heaterIsOn = ((param.heatingMode * slopeT) > 0) && ((param.heatingMode * slopeH) > 0) && (running > 0);
+  // no need to access the hardware on every iteration, do it only when something changes
   if (heaterIsOn != heaterWasOn || !running) {
     digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
     heaterWasOn = heaterIsOn;
   }
 
-  // this is a safety feature, it's ok to use delay here
-  // it will only be triggered in a rare condition
+  // this is a safety feature
   static int relayClickNow{HIGH};
   static int relayClickThen{LOW};
   relayClickNow = (relayT > param.maxRelayT)?HIGH:LOW;
   if (relayClickNow != relayClickThen && (skipRelayCheck<0)) {
     if (relayClickNow == LOW) {
-      digitalWriteFast(relayClickPin, relayClickNow);
       running = 1;
     } else {
-      digitalWriteFast(relayClickPin, relayClickNow);
+      digitalWriteFast(relaySSRpin, LOW);
       running = -1;
     }
+    ui.tick();
+    digitalWriteFast(relayClickPin, relayClickNow);
     relayClickThen = relayClickNow;
   }
 } // loop ()
