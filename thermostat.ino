@@ -18,7 +18,6 @@ constexpr int8_t oneWirePinRelay = A3;
 
 constexpr int8_t relaySSRpin = 13;
 constexpr int8_t relayClickPin = A0;
-//constexpr int8_t thermistorPin = A1;
 
 //
 constexpr unsigned long thermoMainSamplingPeriod = 2000; //ms
@@ -55,6 +54,7 @@ float  stepT[nResolutionsT] =                    {0.125, 0.25, 0.5};
 int8_t tempSensorResolution[nResolutionsT] =     {11,    10,     9};
 int8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
 
+// settable parameters
 struct Param_t {
   float targetT{40.};
   float limitHeaterT{70.};
@@ -257,6 +257,7 @@ void setup()
     lcd.print("   Bad EEPROM");
     lcd.setCursor(0,1);
     lcd.print("fallback default");
+    SaveSettings();  //maybe a new board or something went wrong, store defaults
   }
 
   pinMode(encoderButtonPin, INPUT_PULLUP);
