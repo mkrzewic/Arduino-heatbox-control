@@ -1,4 +1,4 @@
-#include <RotaryEncoderMK.h>
+#include <RotaryEncoder.h>
 #include <LiquidCrystal.h>
 #include <digitalWriteFast.h>
 #include <OneWire.h>
@@ -162,7 +162,11 @@ struct UI_t {
       case State_t::showTemperatures:
         lcd.print("heater:");
         lcd.setCursor(8,0);
-        lcd.print(heaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
+        if (devCountHeater==0) {
+          lcd.print("absent");
+        } else {
+          lcd.print(heaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
+        }
         lcd.setCursor(0,1);
         lcd.print("relay:");
         lcd.setCursor(8,1);
@@ -241,7 +245,7 @@ void initSensors() {
   if (devCountRelay==0) {ui.error("no relay sensor");}
   if (!thermoMain.getAddress(addrMain,0)) {ui.error("no main sensor");}
   if (!thermoHeater.getAddress(addrHeater,0)) {}
-  if (!thermoRelay.getAddress(addrRelay,0)) {ui.error("no main sensor");}
+  if (!thermoRelay.getAddress(addrRelay,0)) {ui.error("no relay sensor");}
   thermoMain.setResolution(tempSensorResolution[param.iStepT]);
   thermoHeater.setResolution(tempSensorResolution[iResolutionHeaterT]);
   thermoRelay.setResolution(tempSensorResolution[iResolutionRelayT]);
