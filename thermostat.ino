@@ -75,6 +75,7 @@ float errT = {0.};
 int8_t slopeT = {1}; //invalid value 0 needed for bootstrap
 int8_t slopeH = {1}; //invalid value 0 needed for bootstrap
 int8_t running = {1};
+int8_t heaterIsOn{0}, heaterWasOn{0};
 bool saveSettings{false};
 int devCountMain{0};
 int devCountHeater{0};
@@ -123,12 +124,18 @@ struct UI_t {
         if (running==-1 && relayT > param.maxRelayT) {
           lcd.print("relay overheat");
         } else {
-        lcd.print("now:");
-        lcd.setCursor(8,0);
-        lcd.print(mainT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
+          if (slopeT>0 && param.heatingMode>0) {
+            lcd.print("heat");
+          } else if (slopeT<0 && param.heatingMode<0) {
+            lcd.print("cool");
+          } else {
+            lcd.print("steady");
+          }
+          lcd.setCursor(8,0);
+          lcd.print(mainT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         }
         lcd.setCursor(0,1);
-        lcd.print("-->");
+        lcd.print(char(126));
         lcd.setCursor(8,1);
         lcd.print(param.targetT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         break;
@@ -515,7 +522,6 @@ void loop()
   }
 
   //control main relay
-  static int8_t heaterIsOn{0}, heaterWasOn{0};
   heaterIsOn = ((param.heatingMode * slopeT) > 0) && ((param.heatingMode * slopeH) > 0) && (running > 0);
   // no need to access the hardware on every iteration, do it only when something changes
   if (heaterIsOn != heaterWasOn || !running) {
