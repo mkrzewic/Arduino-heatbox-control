@@ -170,7 +170,7 @@ struct UI_t {
         lcd.print("heater:");
         lcd.setCursor(8,0);
         if (devCountHeater==0) {
-          lcd.print("absent");
+          lcd.print("?");
         } else {
           lcd.print(heaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
         }
