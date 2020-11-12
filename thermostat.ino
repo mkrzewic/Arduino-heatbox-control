@@ -7,6 +7,8 @@
 #include <EEPROM.h>
 #include <CRC32.h>
 
+//#define DEBUG
+
 //pin defs
 constexpr int8_t encoderPin1 = 11;
 constexpr int8_t encoderPin2 = 10;
@@ -266,9 +268,11 @@ void initSensors() {
 
 void setup()
 {
-  lcd.begin(16,2);
-  //Serial.begin(115200);
+#ifdef DEBUG
+  Serial.begin(115200);
+#endif
 
+  lcd.begin(16,2);
   if (!RestoreSettings()) {
     lcd.clear();
     lcd.print("   Bad EEPROM");
@@ -319,9 +323,11 @@ ISR(PCINT0_vect) {
 // Read the current position of the encoder and print out when updated.
 void loop()
 {
-  //static unsigned long tajm{0},acc{0};
-  //static unsigned long counter{0};
-  //tajm=micros();
+#ifdef DEBUG
+  static unsigned long tajm{0},acc{0};
+  static unsigned long counter{0};
+  tajm=micros();
+#endif
 
   ui.update(lcd);
 
@@ -443,9 +449,7 @@ void loop()
     if (devCountMain > 0) {
       timeStartMainTConversion = millis();
       thermoMain.setWaitForConversion(false);
-      noInterrupts();
       thermoMain.requestTemperatures();
-      interrupts();
       readMainTonce = 1;
     }
   }
@@ -453,9 +457,7 @@ void loop()
   //read teperatures from main sensor
   if (readMainTonce==1 && ((millis() - timeStartMainTConversion) > thermoMain.millisToWaitForConversion())) {
 
-    noInterrupts();
     mainT = thermoMain.getTempC(addrMain);
-    interrupts();
     if (mainT == DEVICE_DISCONNECTED_C) {
       ui.error("bad main sensor");
     }
@@ -468,9 +470,7 @@ void loop()
     if (devCountHeater > 0) {
       timeStartHeaterTConversion = millis();
       thermoHeater.setWaitForConversion(false);
-      noInterrupts();
       thermoHeater.requestTemperatures();
-      interrupts();
       readHeaterTonce = 1;
     }
   }
@@ -478,9 +478,7 @@ void loop()
   //read teperatures from heater sensor
   if (readHeaterTonce==1 && ((millis() - timeStartHeaterTConversion) > thermoHeater.millisToWaitForConversion())) {
 
-    noInterrupts();
     heaterT = thermoHeater.getTempC(addrHeater);
-    interrupts();
     if (heaterT == DEVICE_DISCONNECTED_C) {
       ui.error("bad heater sensor");
     }
@@ -492,9 +490,7 @@ void loop()
     if (devCountRelay > 0) {
       timeStartRelayTConversion = millis();
       thermoRelay.setWaitForConversion(false);
-      noInterrupts();
       thermoRelay.requestTemperatures();
-      interrupts();
       readRelayTonce = 1;
     }
   }
@@ -503,9 +499,7 @@ void loop()
   //read teperatures from relay sensor
   if (readRelayTonce==1 && ((millis() - timeStartRelayTConversion) > thermoRelay.millisToWaitForConversion())) {
 
-    noInterrupts();
     relayT = thermoRelay.getTempC(addrRelay);
-    interrupts();
     if (relayT == DEVICE_DISCONNECTED_C) {
       ui.error("bad relay sensor");
     }
@@ -558,11 +552,13 @@ void loop()
     relayClickThen = relayClickNow;
   }
 
-//  acc += micros() - tajm;
-//  counter++;
-//  if (counter == 10000) {
-//    Serial.println(acc/counter);
-//    counter = 0;
-//    acc = 0;
-//  }
+#ifdef DEBUG
+  acc += micros() - tajm;
+  counter++;
+  if (counter == 10000) {
+    Serial.println(acc/counter);
+    counter = 0;
+    acc = 0;
+  }
+#endif
 } // loop ()
