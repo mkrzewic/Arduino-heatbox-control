@@ -62,6 +62,7 @@ struct Param_t {
   int8_t heatingMode{1}; //-1 or 1 for cooling/heating
   uint8_t iStepT{2};
   float maxRelayT = 99.;
+  float maxTargetT{60.};
 };
 
 Param_t param{};
@@ -88,9 +89,9 @@ unsigned long timeStartMainTConversion{0};
 unsigned long timeStartHeaterTConversion{0};
 unsigned long timeStartRelayTConversion{0};
 
-enum class State_t {run, setT, setLimitHeaterT, error, man,
+enum class State_t {run, setTargetT, setLimitHeaterT, error, man,
                     setHeatingMode, setTargetDeltaT, setTemperatureStep,
-                    saveSettings, showTemperatures,  setLimitRelayT};
+                    saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
 struct UI_t {
   unsigned long lastChange{0};
   State_t state{State_t::run};
@@ -139,7 +140,7 @@ struct UI_t {
         lcd.setCursor(8,1);
         lcd.print(param.targetT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         break;
-      case State_t::setT:
+      case State_t::setTargetT:
         lcd.setCursor(0,0);
         lcd.print("Set temperature");
         lcd.setCursor(6,2);
@@ -187,6 +188,11 @@ struct UI_t {
         lcd.print("Max relay temp");
         lcd.setCursor(8,1);
         lcd.print(param.maxRelayT);lcd.print(char(223));lcd.print("C");
+        break;
+      case State_t::setMaxTargetT:
+        lcd.print("Max settable temp");
+        lcd.setCursor(8,1);
+        lcd.print(param.maxTargetT);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::error:
         lcd.setCursor(0,0);
@@ -313,9 +319,8 @@ ISR(PCINT0_vect) {
 // Read the current position of the encoder and print out when updated.
 void loop()
 {
-  //static unsigned long tajm = 0;
-  //tajm=millis();
-  //read knob
+  //unsigned long tajm = 0;
+  //tajm=micros();
 
   ui.update(lcd);
 
@@ -331,8 +336,9 @@ void loop()
           ui.changeState(State_t::showTemperatures);
         }
         break;
-      case State_t::setT:
+      case State_t::setTargetT:
         param.targetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
+        if (param.targetT > param.maxTargetT) { param.targetT = param.maxTargetT; }
         break;
       case State_t::setLimitHeaterT:
         param.limitHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionHeaterT];
@@ -363,6 +369,9 @@ void loop()
       case State_t::setLimitRelayT:
         param.maxRelayT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionRelayT];
         break;
+      case State_t::setMaxTargetT:
+        param.maxTargetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
+        break;
       case State_t::showTemperatures:
         ui.changeState(State_t::man);
         break;
@@ -388,9 +397,9 @@ void loop()
     if (modeButton[0] < modeButton[1]) {
     switch(ui.state) {
       case State_t::run:
-        ui.changeState(State_t::setT);
+        ui.changeState(State_t::setTargetT);
         break;
-      case State_t::setT:
+      case State_t::setTargetT:
         ui.changeState(State_t::setLimitHeaterT);
         break;
       case State_t::setLimitHeaterT:
@@ -406,6 +415,9 @@ void loop()
         ui.changeState(State_t::setLimitRelayT);
         break;
       case State_t::setLimitRelayT:
+        ui.changeState(State_t::setMaxTargetT);
+        break;
+      case State_t::setMaxTargetT:
         ui.changeState(State_t::saveSettings);
         break;
       case State_t::saveSettings:
@@ -415,7 +427,7 @@ void loop()
       case State_t::error:
         break;
       case State_t::man:
-        ui.changeState(State_t::setT);
+        ui.changeState(State_t::setTargetT);
         break;
       case State_t::showTemperatures:
         break;
