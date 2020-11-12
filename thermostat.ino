@@ -22,6 +22,7 @@ constexpr int8_t relaySSRpin = 13;
 constexpr int8_t relayClickPin = A0;
 
 //
+constexpr unsigned long ULONG_MAX{0xffffffff};
 constexpr unsigned long thermoMainSamplingPeriod = 2000; //ms
 constexpr unsigned long thermoHeaterSamplingPeriod = 500; //ms
 constexpr unsigned long thermoRelaySamplingPeriod = 500; //ms
@@ -47,9 +48,6 @@ volatile uint8_t modeButton[2] = {1};
 int8_t knobPosition[2] = {0};
 volatile unsigned long bounceTimer{0};
 volatile bool readEncoderButton{false};
-uint8_t readMainTonce{0};
-uint8_t readHeaterTonce{0};
-uint8_t readRelayTonce{0};
 
 constexpr int8_t nResolutionsT = 3;
 float  stepT[nResolutionsT] =                    {0.125, 0.25, 0.5};
@@ -90,6 +88,9 @@ uint32_t addressEEPROMSettings = {100};
 unsigned long timeStartMainTConversion{0};
 unsigned long timeStartHeaterTConversion{0};
 unsigned long timeStartRelayTConversion{0};
+unsigned long timeStartMainTReadout{ULONG_MAX};
+unsigned long timeStartHeaterTReadout{ULONG_MAX};
+unsigned long timeStartRelayTReadout{ULONG_MAX};
 
 enum class State_t {run, setTargetT, setLimitHeaterT, error, man,
                     setHeatingMode, setTargetDeltaT, setTemperatureStep,
@@ -296,16 +297,21 @@ void setup()
 
   //initial read of temperatures.
   thermoMain.setWaitForConversion(true);
+  thermoHeater.setWaitForConversion(true);
+  thermoRelay.setWaitForConversion(true);
+
   thermoMain.requestTemperatures();
   mainT = thermoMain.getTempC(addrMain);
 
-  thermoHeater.setWaitForConversion(true);
   thermoHeater.requestTemperatures();
   heaterT = thermoHeater.getTempC(addrHeater);
 
-  thermoRelay.setWaitForConversion(true);
   thermoRelay.requestTemperatures();
   relayT = thermoRelay.getTemp(addrRelay);
+
+  thermoMain.setWaitForConversion(false);
+  thermoHeater.setWaitForConversion(false);
+  thermoRelay.setWaitForConversion(false);
 
   heaterMaxT = max(param.targetT, param.limitHeaterT);
   heaterMinT = min(param.targetT, param.limitHeaterT);
@@ -313,8 +319,7 @@ void setup()
 } // setup()
 
 
-// The Interrupt Service Routine for Pin Change Interrupt 1
-// This routine will only be called on any signal change on A2 and A3: exactly where we need to check.
+// handle interrupt on bank 0
 ISR(PCINT0_vect) {
   encoder.tick(); // just call tick() to check the state.
   bounceTimer=millis();
@@ -361,9 +366,7 @@ void loop()
         static int8_t dir{0};
         dir = static_cast<int8_t>(encoder.getDirection());
         if ((dir > 0) && (param.iStepT == nResolutionsT-1)) {
-
         } else if ((dir < 0) && (param.iStepT == 0)) {
-
         } else {
           param.iStepT = param.iStepT + dir;
         }
@@ -445,69 +448,60 @@ void loop()
   }
 
   // start conversion period for main
-  if ((millis() - timeStartMainTConversion)>thermoMainSamplingPeriod) {
-    if (devCountMain > 0) {
-      timeStartMainTConversion = millis();
-      thermoMain.setWaitForConversion(false);
-      thermoMain.requestTemperatures();
-      readMainTonce = 1;
-    }
+  if (millis() > timeStartMainTConversion) {
+    thermoMain.requestTemperatures();
+    timeStartMainTConversion = millis() + thermoMainSamplingPeriod;
+    timeStartMainTReadout = millis() + thermoMain.millisToWaitForConversion();
   }
 
   //read teperatures from main sensor
-  if (readMainTonce==1 && ((millis() - timeStartMainTConversion) > thermoMain.millisToWaitForConversion())) {
-
+  if (millis() > timeStartMainTReadout) {
+    timeStartMainTReadout = ULONG_MAX;
     mainT = thermoMain.getTempC(addrMain);
     if (mainT == DEVICE_DISCONNECTED_C) {
       ui.error("bad main sensor");
     }
-    readMainTonce=0;
     ui.redraw = true;
   }
 
-  // start conversion period for heater
-  if ((millis() - timeStartHeaterTConversion)>thermoHeaterSamplingPeriod) {
+  // start conversion period for heater only if it is there
+  if (millis() > timeStartHeaterTConversion && devCountHeater>0) {
     if (devCountHeater > 0) {
-      timeStartHeaterTConversion = millis();
-      thermoHeater.setWaitForConversion(false);
       thermoHeater.requestTemperatures();
-      readHeaterTonce = 1;
+      timeStartHeaterTConversion = millis() + thermoHeaterSamplingPeriod;
+      timeStartHeaterTReadout = millis() + thermoHeater.millisToWaitForConversion();
     }
   }
 
   //read teperatures from heater sensor
-  if (readHeaterTonce==1 && ((millis() - timeStartHeaterTConversion) > thermoHeater.millisToWaitForConversion())) {
-
+  if (millis() > timeStartHeaterTReadout) {
+    timeStartHeaterTReadout = ULONG_MAX;
     heaterT = thermoHeater.getTempC(addrHeater);
     if (heaterT == DEVICE_DISCONNECTED_C) {
       ui.error("bad heater sensor");
     }
-    readHeaterTonce=0;
   }
 
   // start conversion period for relay
-  if ((millis() - timeStartRelayTConversion)>thermoRelaySamplingPeriod) {
-    if (devCountRelay > 0) {
-      timeStartRelayTConversion = millis();
-      thermoRelay.setWaitForConversion(false);
-      thermoRelay.requestTemperatures();
-      readRelayTonce = 1;
-    }
+  if (millis() > timeStartRelayTConversion) {
+    thermoRelay.requestTemperatures();
+    timeStartRelayTConversion = millis() + thermoRelaySamplingPeriod;
+    timeStartRelayTReadout = millis() + thermoRelay.millisToWaitForConversion();
   }
 
   static int8_t skipRelayCheck{0};
   //read teperatures from relay sensor
-  if (readRelayTonce==1 && ((millis() - timeStartRelayTConversion) > thermoRelay.millisToWaitForConversion())) {
-
+  if (millis() > timeStartRelayTReadout) {
+    timeStartRelayTReadout = ULONG_MAX;
     relayT = thermoRelay.getTempC(addrRelay);
     if (relayT == DEVICE_DISCONNECTED_C) {
       ui.error("bad relay sensor");
     }
+
     static uint8_t nWeirdValuesRelayT{0};
     if (relayT > 150.) { nWeirdValuesRelayT++; skipRelayCheck = 1;}
     else { skipRelayCheck = -1; }
     if (nWeirdValuesRelayT>10) ui.error("relay sensor weird");
-    readRelayTonce=0;
   }
 
   //control the actual regulated temperature
