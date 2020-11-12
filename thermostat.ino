@@ -123,7 +123,7 @@ struct UI_t {
     switch(state) {
       case State_t::run:
         if (running==-1 && relayT > param.maxRelayT) {
-          lcd.print("relay overheat");
+          lcd.print("relay overheated");
         } else {
           if (slopeT>0 && param.heatingMode>0) {
             lcd.print("heat");
@@ -187,7 +187,7 @@ struct UI_t {
       case State_t::setLimitRelayT:
         lcd.print("Max relay temp");
         lcd.setCursor(8,1);
-        lcd.print(param.maxRelayT);lcd.print(char(223));lcd.print("C");
+        lcd.print(param.maxRelayT,displayPrecision[iResolutionRelayT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setMaxTargetT:
         lcd.print("Max settable temp");
@@ -267,7 +267,7 @@ void initSensors() {
 void setup()
 {
   lcd.begin(16,2);
-  //Serial.begin(9600);
+  //Serial.begin(115200);
 
   if (!RestoreSettings()) {
     lcd.clear();
@@ -319,7 +319,8 @@ ISR(PCINT0_vect) {
 // Read the current position of the encoder and print out when updated.
 void loop()
 {
-  //unsigned long tajm = 0;
+  //static unsigned long tajm{0},acc{0};
+  //static unsigned long counter{0};
   //tajm=micros();
 
   ui.update(lcd);
@@ -556,6 +557,12 @@ void loop()
     digitalWriteFast(relayClickPin, relayClickNow);
     relayClickThen = relayClickNow;
   }
-} // loop ()
 
-// The End
+//  acc += micros() - tajm;
+//  counter++;
+//  if (counter == 10000) {
+//    Serial.println(acc/counter);
+//    counter = 0;
+//    acc = 0;
+//  }
+} // loop ()
