@@ -44,10 +44,10 @@ DeviceAddress addrRelay;
 RotaryEncoder encoder(encoderPin1, encoderPin2);
 LiquidCrystal lcd(9,8,7,6,5,4);
 
-volatile uint8_t modeButton[2] = {1};
-int8_t knobPosition[2] = {0};
 volatile unsigned long bounceTimer{0};
-volatile bool readEncoderButton{false};
+uint8_t modeButton[2] = {1};
+int8_t knobPosition[2] = {0};
+bool readEncoderButton{false};
 
 constexpr int8_t nResolutionsT = 3;
 float  stepT[nResolutionsT] =                    {0.125, 0.25, 0.5};
@@ -151,7 +151,7 @@ struct UI_t {
         break;
       case State_t::setLimitHeaterT:
         lcd.setCursor(0,0);
-        param.heatingMode>0?lcd.print("Heater max T"):lcd.print("Cooler min T");
+        param.heatingMode>0?lcd.print("Max heater T"):lcd.print("Min cooler T");
         lcd.setCursor(6,1);
         lcd.print(param.limitHeaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
         break;
@@ -161,14 +161,14 @@ struct UI_t {
         lcd.print(param.heatingMode<0?"cool":"heat");
         break;
       case State_t::setTargetDeltaT:
-        lcd.print("Hysteresis");
+        lcd.print("T variation");
         lcd.setCursor(6,1);
         lcd.print(param.hysteresisT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setTemperatureStep:
-        lcd.print("Temp resolution");
+        lcd.print("T precision");
         lcd.setCursor(6, 1);
-        lcd.print(stepT[param.iStepT], displayPrecision[param.iStepT]);
+        lcd.print(stepT[param.iStepT], displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::showTemperatures:
         lcd.print("heater:");
@@ -188,12 +188,12 @@ struct UI_t {
         lcd.setCursor(2,1); (saveSettings)?lcd.print("press to save"):lcd.print("no");
         break;
       case State_t::setLimitRelayT:
-        lcd.print("Max relay temp");
+        lcd.print("Max relay T");
         lcd.setCursor(8,1);
         lcd.print(param.maxRelayT,displayPrecision[iResolutionRelayT]);lcd.print(char(223));lcd.print("C");
         break;
       case State_t::setMaxTargetT:
-        lcd.print("Max settable temp");
+        lcd.print("Max settable T");
         lcd.setCursor(8,1);
         lcd.print(param.maxTargetT);lcd.print(char(223));lcd.print("C");
         break;
@@ -215,6 +215,12 @@ struct UI_t {
 };
 
 UI_t ui{};
+
+// handle interrupt on bank 0
+ISR(PCINT0_vect) {
+  encoder.tick(); // just call tick() to check the state.
+  bounceTimer=millis();
+}
 
 void SaveSettings() {
   saveSettings=false;
@@ -318,13 +324,6 @@ void setup()
   running = 1;
 } // setup()
 
-
-// handle interrupt on bank 0
-ISR(PCINT0_vect) {
-  encoder.tick(); // just call tick() to check the state.
-  bounceTimer=millis();
-}
-
 // Read the current position of the encoder and print out when updated.
 void loop()
 {
@@ -419,15 +418,15 @@ void loop()
         ui.changeState(State_t::setTemperatureStep);
         break;
       case State_t::setTemperatureStep:
-        ui.changeState(State_t::setHeatingMode);
-        break;
-      case State_t::setHeatingMode:
-        ui.changeState(State_t::setLimitRelayT);
-        break;
-      case State_t::setLimitRelayT:
         ui.changeState(State_t::setMaxTargetT);
         break;
       case State_t::setMaxTargetT:
+        ui.changeState(State_t::setLimitRelayT);
+        break;
+      case State_t::setLimitRelayT:
+        ui.changeState(State_t::setHeatingMode);
+        break;
+      case State_t::setHeatingMode:
         ui.changeState(State_t::saveSettings);
         break;
       case State_t::saveSettings:
