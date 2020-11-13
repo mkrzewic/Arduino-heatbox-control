@@ -47,32 +47,30 @@ LiquidCrystal lcd(9,8,7,6,5,4);
 volatile unsigned long bounceTimer{0};
 uint8_t modeButton[2] = {1};
 int8_t knobPosition[2] = {0};
-bool readEncoderButton{false};
 
 constexpr int8_t nResolutionsT = 3;
-float  stepT[nResolutionsT] =                    {0.125, 0.25, 0.5};
-int8_t tempSensorResolution[nResolutionsT] =     {11,    10,     9};
-int8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
+constexpr uint8_t stepT[nResolutionsT] =                    {16, 32, 64};
+constexpr uint8_t tempSensorResolution[nResolutionsT] =     {11,    10,     9};
+constexpr uint8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
 
 // settable parameters
 struct Param_t {
-  float targetT{40.};
-  float limitHeaterT{70.};
-  float hysteresisT{.5};
+  int16_t targetT{5120};
+  int16_t limitHeaterT{8960};
+  int16_t hysteresisT{64};
   int8_t heatingMode{1}; //-1 or 1 for cooling/heating
   uint8_t iStepT{2};
-  float maxRelayT = 99.;
-  float maxTargetT{60.};
+  int16_t maxRelayT{12672};
+  int16_t maxTargetT{7680};
 };
 
 Param_t param{};
 
-float heaterMaxT{0.};
-float heaterMinT(0.);
-float mainT = {0.};
-float heaterT = {0.};
-float relayT = {0.};
-float errT = {0.};
+int16_t heaterMaxT{0};
+int16_t heaterMinT(0);
+int16_t mainT = {0};
+int16_t heaterT = {0};
+int16_t relayT = {0};
 int8_t slopeT = {1}; //invalid value 0 needed for bootstrap
 int8_t slopeH = {1}; //invalid value 0 needed for bootstrap
 int8_t running = {1};
@@ -119,6 +117,35 @@ struct UI_t {
     redraw = true;
   }
 
+  template<typename T>
+    T intpow(T base, T exponent) {
+      T ret{1};
+      while (exponent>0) {
+        ret *= base;
+        exponent--;
+      }
+      return ret;
+    }
+
+  // TODO: minimize chance of overflow, multiplying stuff by 1000 goes to large numbers potentially
+  template<typename T, typename U, typename V, typename W, typename X>
+    void printAsFloat(T const x, X const valPerUnit, U& out, W const places, V base) {
+      out.print(x / valPerUnit, base);
+      out.print(".");
+      // TODO: here be dragons
+      auto nb = out.print(int32_t(x % valPerUnit)*intpow<int16_t>(10,places)/valPerUnit, base);
+      for (; nb < places; ++nb) {
+        out.print("0");
+      }
+    }
+
+  template<typename U>
+    void printDallasTempC(int32_t const raw, U& out, uint8_t const places) {
+      printAsFloat(int32_t(raw), uint16_t(128), out, places, DEC);
+      out.print(char(223));
+      out.print("C");
+    }
+
   void update(LiquidCrystal& lcd) {
     if (!redraw) return;
     redraw = false;
@@ -136,24 +163,24 @@ struct UI_t {
             lcd.print("steady");
           }
           lcd.setCursor(8,0);
-          lcd.print(mainT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
+          printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
         }
         lcd.setCursor(0,1);
         lcd.print(char(126));
         lcd.setCursor(8,1);
-        lcd.print(param.targetT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
+        printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setTargetT:
         lcd.setCursor(0,0);
         lcd.print("Set temperature");
         lcd.setCursor(6,2);
-        lcd.print(param.targetT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
+        printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setLimitHeaterT:
         lcd.setCursor(0,0);
         param.heatingMode>0?lcd.print("Max heater T"):lcd.print("Min cooler T");
         lcd.setCursor(6,1);
-        lcd.print(param.limitHeaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
+        printDallasTempC(param.limitHeaterT, lcd, displayPrecision[iResolutionHeaterT]);
         break;
       case State_t::setHeatingMode:
         lcd.print("Set cool <> heat");
@@ -163,12 +190,12 @@ struct UI_t {
       case State_t::setTargetDeltaT:
         lcd.print("T variation");
         lcd.setCursor(6,1);
-        lcd.print(param.hysteresisT,displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
+        printDallasTempC(param.hysteresisT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setTemperatureStep:
         lcd.print("T precision");
         lcd.setCursor(6, 1);
-        lcd.print(stepT[param.iStepT], displayPrecision[param.iStepT]);lcd.print(char(223));lcd.print("C");
+        printDallasTempC(stepT[param.iStepT], lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::showTemperatures:
         lcd.print("heater:");
@@ -176,12 +203,12 @@ struct UI_t {
         if (devCountHeater==0) {
           lcd.print("?");
         } else {
-          lcd.print(heaterT,displayPrecision[iResolutionHeaterT]);lcd.print(char(223));lcd.print("C");
+          printDallasTempC(heaterT, lcd, displayPrecision[iResolutionHeaterT]);
         }
         lcd.setCursor(0,1);
         lcd.print("relay:");
         lcd.setCursor(8,1);
-        lcd.print(relayT,displayPrecision[iResolutionRelayT]);lcd.print(char(223));lcd.print("C");
+        printDallasTempC(relayT, lcd, displayPrecision[iResolutionRelayT]);
         break;
       case State_t::saveSettings:
         lcd.print("Save as defaults");
@@ -190,12 +217,12 @@ struct UI_t {
       case State_t::setLimitRelayT:
         lcd.print("Max relay T");
         lcd.setCursor(8,1);
-        lcd.print(param.maxRelayT,displayPrecision[iResolutionRelayT]);lcd.print(char(223));lcd.print("C");
+        printDallasTempC(param.maxRelayT, lcd, displayPrecision[iResolutionRelayT]);
         break;
       case State_t::setMaxTargetT:
         lcd.print("Max settable T");
         lcd.setCursor(8,1);
-        lcd.print(param.maxTargetT);lcd.print(char(223));lcd.print("C");
+        printDallasTempC(param.maxTargetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::error:
         lcd.setCursor(0,0);
@@ -307,10 +334,10 @@ void setup()
   thermoRelay.setWaitForConversion(true);
 
   thermoMain.requestTemperatures();
-  mainT = thermoMain.getTempC(addrMain);
+  mainT = thermoMain.getTemp(addrMain);
 
   thermoHeater.requestTemperatures();
-  heaterT = thermoHeater.getTempC(addrHeater);
+  heaterT = thermoHeater.getTemp(addrHeater);
 
   thermoRelay.requestTemperatures();
   relayT = thermoRelay.getTemp(addrRelay);
@@ -387,8 +414,8 @@ void loop()
       default:
         break;
     }
-    float limitHeaterOther{0.};
-    limitHeaterOther = (param.targetT + param.limitHeaterT)/2.;
+    int16_t limitHeaterOther{0};
+    limitHeaterOther = (param.targetT + param.limitHeaterT)/2;
     heaterMaxT = max(limitHeaterOther, param.limitHeaterT);
     heaterMinT = min(limitHeaterOther, param.limitHeaterT);
   }
@@ -456,7 +483,7 @@ void loop()
   //read teperatures from main sensor
   if (millis() > timeStartMainTReadout) {
     timeStartMainTReadout = ULONG_MAX;
-    mainT = thermoMain.getTempC(addrMain);
+    mainT = thermoMain.getTemp(addrMain);
     if (mainT == DEVICE_DISCONNECTED_C) {
       ui.error("bad main sensor");
     }
@@ -475,7 +502,7 @@ void loop()
   //read teperatures from heater sensor
   if (millis() > timeStartHeaterTReadout) {
     timeStartHeaterTReadout = ULONG_MAX;
-    heaterT = thermoHeater.getTempC(addrHeater);
+    heaterT = thermoHeater.getTemp(addrHeater);
     if (heaterT == DEVICE_DISCONNECTED_C) {
       ui.error("bad heater sensor");
     }
@@ -492,15 +519,15 @@ void loop()
   //read teperatures from relay sensor
   if (millis() > timeStartRelayTReadout) {
     timeStartRelayTReadout = ULONG_MAX;
-    relayT = thermoRelay.getTempC(addrRelay);
+    relayT = thermoRelay.getTemp(addrRelay);
     if (relayT == DEVICE_DISCONNECTED_C) {
       ui.error("bad relay sensor");
     }
 
     static uint8_t nWeirdValuesRelayT{0};
-    if (relayT > 150.) { nWeirdValuesRelayT++; skipRelayCheck = 1;}
+    if (relayT > 19200) { nWeirdValuesRelayT++; skipRelayCheck = 1;}
     else { skipRelayCheck = -1; }
-    if (nWeirdValuesRelayT>10) ui.error("relay sensor weird");
+    if (nWeirdValuesRelayT>10) ui.error("relay T weird");
   }
 
   //control the actual regulated temperature
