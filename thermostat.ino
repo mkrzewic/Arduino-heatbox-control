@@ -80,8 +80,8 @@ int devCountMain{0};
 int devCountHeater{0};
 int devCountRelay{0};
 uint32_t eepromCRC{0};
-uint32_t addressEEPROMcrc = {10};
-uint32_t addressEEPROMSettings = {100};
+uint32_t addressEEPROMcrc = {0};
+uint32_t addressEEPROMSettings = {addressEEPROMcrc + sizeof(addressEEPROMcrc)};
 
 unsigned long timeStartMainTConversion{0};
 unsigned long timeStartHeaterTConversion{0};
@@ -309,11 +309,15 @@ void setup()
   lcd.begin(16,2);
   if (!RestoreSettings()) {
     lcd.clear();
-    lcd.print("   Bad EEPROM");
+    lcd.print("  EEPROM error");
     lcd.setCursor(0,1);
     lcd.print("fallback default");
+    delay(1000);
     SaveSettings();  //maybe a new board or something went wrong, store defaults
   }
+
+  lcd.clear();
+  lcd.print("       MKr");
 
   pinMode(encoderButtonPin, INPUT_PULLUP);
 
@@ -348,6 +352,7 @@ void setup()
 
   heaterMaxT = max(param.targetT, param.limitHeaterT);
   heaterMinT = min(param.targetT, param.limitHeaterT);
+
   running = 1;
 } // setup()
 
@@ -484,7 +489,7 @@ void loop()
   if (millis() > timeStartMainTReadout) {
     timeStartMainTReadout = ULONG_MAX;
     mainT = thermoMain.getTemp(addrMain);
-    if (mainT == DEVICE_DISCONNECTED_C) {
+    if (mainT == DEVICE_DISCONNECTED_RAW) {
       ui.error("bad main sensor");
     }
     ui.redraw = true;
@@ -503,7 +508,7 @@ void loop()
   if (millis() > timeStartHeaterTReadout) {
     timeStartHeaterTReadout = ULONG_MAX;
     heaterT = thermoHeater.getTemp(addrHeater);
-    if (heaterT == DEVICE_DISCONNECTED_C) {
+    if (heaterT == DEVICE_DISCONNECTED_RAW) {
       ui.error("bad heater sensor");
     }
   }
@@ -520,7 +525,7 @@ void loop()
   if (millis() > timeStartRelayTReadout) {
     timeStartRelayTReadout = ULONG_MAX;
     relayT = thermoRelay.getTemp(addrRelay);
-    if (relayT == DEVICE_DISCONNECTED_C) {
+    if (relayT == DEVICE_DISCONNECTED_RAW) {
       ui.error("bad relay sensor");
     }
 
