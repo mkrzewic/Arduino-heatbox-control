@@ -71,9 +71,10 @@ int16_t heaterMinT(0);
 int16_t mainT = {0};
 int16_t heaterT = {0};
 int16_t relayT = {0};
-int8_t slopeT = {1}; //invalid value 0 needed for bootstrap
-int8_t slopeH = {1}; //invalid value 0 needed for bootstrap
-int8_t running = {1};
+int8_t slopeT = {-1};
+int8_t slopeH = {-1};
+int8_t running = {-1}; //start is the off state
+int8_t wasrunning = {0};
 int8_t heaterIsOn{0}, heaterWasOn{0};
 bool saveSettings{false};
 int devCountMain{0};
@@ -96,7 +97,7 @@ enum class State_t {run, setTargetT, setLimitHeaterT, error, man,
 struct UI_t {
   unsigned long lastChange{0};
   State_t state{State_t::run};
-  State_t lastState{State_t::error};
+  State_t lastState{State_t::man};
   bool redraw{true};
   const char* errorMsg;
 
@@ -352,8 +353,6 @@ void setup()
 
   heaterMaxT = max(param.targetT, param.limitHeaterT);
   heaterMinT = min(param.targetT, param.limitHeaterT);
-
-  running = 1;
 } // setup()
 
 // Read the current position of the encoder and print out when updated.
@@ -554,27 +553,37 @@ void loop()
   }
 
   //control main relay
-  heaterIsOn = ((param.heatingMode * slopeT) > 0) && ((param.heatingMode * slopeH) > 0) && (running > 0);
+  heaterIsOn = (((param.heatingMode * slopeT) > 0) && ((param.heatingMode * slopeH) > 0)) ? 1 : -1;
+
   // no need to access the hardware on every iteration, do it only when something changes
-  if (heaterIsOn != heaterWasOn || !running) {
+  if ((heaterIsOn != heaterWasOn) && (running > 0)) {
     digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
     heaterWasOn = heaterIsOn;
+    ui.tick();
   }
 
   // this is a safety feature
-  static int relayClickNow{HIGH};
-  static int relayClickThen{LOW};
-  relayClickNow = (relayT > param.maxRelayT)?HIGH:LOW;
-  if (relayClickNow != relayClickThen && (skipRelayCheck<0)) {
-    if (relayClickNow == LOW) {
-      running = 1;
-    } else {
-      digitalWriteFast(relaySSRpin, LOW);
-      running = -1;
-    }
+  if (relayT > param.maxRelayT && skipRelayCheck < 0) {
+    running = -1;
+  } else {
+    running = 1;
+  }
+
+  //handle the connecting/disconnecting of the main relay based on the running condition
+  //this essentially handles error conditions, so it is OK to use delay here
+  if (running != wasrunning) {
+    wasrunning = running;
     ui.tick();
-    digitalWriteFast(relayClickPin, relayClickNow);
-    relayClickThen = relayClickNow;
+    if (running<0) {
+      //we switch off the relays in sequence
+      digitalWriteFast(relaySSRpin, LOW);
+      delay(20); //with 50Hz it takes up to 10ms to switch off (at next zero crossing);
+      digitalWriteFast(relayClickPin, HIGH);
+    } else {
+      //switch on the main relay
+      digitalWriteFast(relayClickPin,LOW);
+      delay(100);  //allow mechanical relay to switch and stabilize, probably around 50-70ms
+    }
   }
 
 #ifdef DEBUG
