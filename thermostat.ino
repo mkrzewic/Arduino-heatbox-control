@@ -111,8 +111,6 @@ struct UI_t {
   void tick() {redraw = true; lastChange = millis();}
 
   void error(const char* message ) {
-    digitalWriteFast(relaySSRpin,LOW);
-    digitalWriteFast(relayClickPin,HIGH);
     running=-1;
     errorMsg = message;
     state = State_t::error;
