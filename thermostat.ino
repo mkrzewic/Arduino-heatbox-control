@@ -73,7 +73,7 @@ int16_t heaterT = {0};
 int16_t relayT = {0};
 int8_t slopeT = {-1};
 int8_t slopeH = {-1};
-int8_t running = {-1}; //start is the off state
+int8_t running = {-1}; //start in the off state
 int8_t wasrunning = {0};
 int8_t heaterIsOn{0}, heaterWasOn{0};
 bool saveSettings{false};
