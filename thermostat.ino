@@ -181,7 +181,7 @@ struct UI_t {
         printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setLimitHeaterT:
-        param.heatingMode>0?lcd.print("Max heater T"):lcd.print("Min cooler T");
+        param.heatingMode>0 ? lcd.print("Max heater T") : lcd.print("Min cooler T");
         lcd.setCursor(6,1);
         printDallasTempC(param.limitHeaterT, lcd, displayPrecision[iResolutionHeaterT]);
         break;
@@ -201,7 +201,7 @@ struct UI_t {
         printDallasTempC(stepT[param.iStepT], lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::showTemperatures:
-        lcd.print("heater:");
+        param.heatingMode > 0 ? lcd.print("heater:") : lcd.print("cooler");;
         lcd.setCursor(8,0);
         if (devCountHeater==0) {
           lcd.print("?");
@@ -223,7 +223,7 @@ struct UI_t {
         printDallasTempC(param.maxRelayT, lcd, displayPrecision[iResolutionRelayT]);
         break;
       case State_t::setMaxTargetT:
-        lcd.print("Max settable T");
+        param.heatingMode>0 ? lcd.print("Max settable T") : lcd.print("Min settable T");
         lcd.setCursor(8,1);
         printDallasTempC(param.maxTargetT, lcd, displayPrecision[param.iStepT]);
         break;
@@ -380,7 +380,7 @@ void loop()
         break;
       case State_t::setTargetT:
         param.targetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
-        if (param.targetT > param.maxTargetT) { param.targetT = param.maxTargetT; }
+        if (param.heatingMode*param.targetT > param.heatingMode*param.maxTargetT) { param.targetT = param.maxTargetT; }
         break;
       case State_t::setLimitHeaterT:
         param.limitHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionHeaterT];
@@ -544,10 +544,12 @@ void loop()
   }
 
   //control the heater temperature
-  if (slopeH>0) {
+  if (devCountHeater == 0) {
+    slopeH = param.heatingMode;
+  } else if (slopeH > 0) {
     //if we're on the rise, we flip sign when we cross higher threshhold
     slopeH *= (heaterT >= heaterMaxT) ? -1 : 1;
-  } else {
+  } else if (slopeH < 0) {
     //if we're on decline, we flip when crossing lower bound (or upper if we're cooling)
     slopeH *= (heaterT <= heaterMinT) ? -1 : 1;
   }
@@ -557,6 +559,25 @@ void loop()
 
   // no need to access the hardware on every iteration, do it only when something changes
   if ((heaterIsOn != heaterWasOn) && (running > 0)) {
+#ifdef DEBUG
+  Serial.print("heatingMode: ");
+  Serial.println(param.heatingMode);
+  Serial.print("heaterIsOn: ");
+  Serial.println(heaterIsOn);
+  Serial.print("slopeT: ");
+  Serial.println(slopeT);
+  Serial.print("slopeH: ");
+  Serial.println(slopeH);
+  Serial.print("heaterMaxT: ");
+  Serial.println(heaterMaxT);
+  Serial.print("heaterMinT: ");
+  Serial.println(heaterMinT);
+  Serial.print("mainT: ");
+  Serial.println(mainT);
+  Serial.print("heaterT: ");
+  Serial.println(heaterT);
+#endif
+
     digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
     heaterWasOn = heaterIsOn;
     ui.tick();
