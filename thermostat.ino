@@ -96,10 +96,12 @@ enum class State_t {run, setTargetT, setLimitHeaterT, error, man,
 struct UI_t {
   unsigned long lastChange{0};
   State_t state{State_t::run};
+  State_t lastState{State_t::error};
   bool redraw{true};
   const char* errorMsg;
 
   void changeState(State_t newState){
+    lastState = state;
     state = newState;
     lastChange = millis();
     redraw = true;
@@ -133,7 +135,7 @@ struct UI_t {
       out.print(x / valPerUnit, base);
       out.print(".");
       // TODO: here be dragons
-      auto nb = out.print(int32_t(x % valPerUnit)*intpow<int16_t>(10,places)/valPerUnit, base);
+      auto nb = out.print(abs(int32_t(x % valPerUnit)*intpow<int16_t>(10,places)/valPerUnit), base);
       for (; nb < places; ++nb) {
         out.print("0");
       }
@@ -143,25 +145,27 @@ struct UI_t {
     void printDallasTempC(int32_t const raw, U& out, uint8_t const places) {
       printAsFloat(int32_t(raw), uint16_t(128), out, places, DEC);
       out.print(char(223));
-      out.print("C");
+      out.print("C ");
     }
 
   void update(LiquidCrystal& lcd) {
     if (!redraw) return;
     redraw = false;
-    lcd.clear();
+    if (lastState!=state) { lcd.clear(); lastState = state; }
+    lcd.home();
     switch(state) {
       case State_t::run:
         if (running==-1 && relayT > param.maxRelayT) {
           lcd.print("relay overheated");
         } else {
           if (slopeT>0 && param.heatingMode>0) {
-            lcd.print("heat");
+            lcd.print(heaterIsOn>0?"HEAT":"heat");
           } else if (slopeT<0 && param.heatingMode<0) {
-            lcd.print("cool");
+            lcd.print(heaterIsOn>0?"COOL":"cool");
           } else {
             lcd.print("steady");
           }
+          lcd.print("    ");
           lcd.setCursor(8,0);
           printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
         }
@@ -171,13 +175,11 @@ struct UI_t {
         printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setTargetT:
-        lcd.setCursor(0,0);
         lcd.print("Set temperature");
         lcd.setCursor(6,2);
         printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setLimitHeaterT:
-        lcd.setCursor(0,0);
         param.heatingMode>0?lcd.print("Max heater T"):lcd.print("Min cooler T");
         lcd.setCursor(6,1);
         printDallasTempC(param.limitHeaterT, lcd, displayPrecision[iResolutionHeaterT]);
@@ -225,14 +227,12 @@ struct UI_t {
         printDallasTempC(param.maxTargetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::error:
-        lcd.setCursor(0,0);
         lcd.print("error:");
         lcd.setCursor(0,1);
         lcd.print(errorMsg);
         exit(0);
         break;
       case State_t::man:
-        lcd.setCursor(0,0);
         lcd.print("    Press to    ");
         lcd.setCursor(0,1);
         lcd.print("change settings");
