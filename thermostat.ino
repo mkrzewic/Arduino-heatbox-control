@@ -10,16 +10,16 @@
 //#define DEBUG
 
 //pin defs
-constexpr int8_t encoderPin1 = 11;
-constexpr int8_t encoderPin2 = 10;
-constexpr int8_t encoderButtonPin = 12;
+constexpr uint8_t encoderPin1 = 11;
+constexpr uint8_t encoderPin2 = 10;
+constexpr uint8_t encoderButtonPin = 12;
 
-constexpr int8_t oneWirePinMain = A1;
-constexpr int8_t oneWirePinHeater = A2;
-constexpr int8_t oneWirePinRelay = A3;
+constexpr uint8_t oneWirePinMain = A1;
+constexpr uint8_t oneWirePinHeater = A2;
+constexpr uint8_t oneWirePinRelay = A3;
 
-constexpr int8_t relaySSRpin = 13;
-constexpr int8_t relayClickPin = A0;
+constexpr uint8_t relaySSRpin = 13;
+constexpr uint8_t relayClickPin = A0;
 
 //
 constexpr unsigned long ULONG_MAX{0xffffffff};
@@ -48,7 +48,7 @@ volatile unsigned long bounceTimer{0};
 uint8_t modeButton[2] = {1};
 int8_t knobPosition[2] = {0};
 
-constexpr int8_t nResolutionsT = 3;
+constexpr uint8_t nResolutionsT = 3;
 constexpr uint8_t stepT[nResolutionsT] =                    {16, 32, 64};
 constexpr uint8_t tempSensorResolution[nResolutionsT] =     {11,    10,     9};
 constexpr uint8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
@@ -77,12 +77,12 @@ int8_t running = {-1}; //start in the off state
 int8_t wasrunning = {0};
 int8_t heaterIsOn{0}, heaterWasOn{0};
 bool saveSettings{false};
-int devCountMain{0};
-int devCountHeater{0};
-int devCountRelay{0};
+uint8_t devCountMain{0};
+uint8_t devCountHeater{0};
+uint8_t devCountRelay{0};
 uint32_t eepromCRC{0};
-uint32_t addressEEPROMcrc = {0};
-uint32_t addressEEPROMSettings = {addressEEPROMcrc + sizeof(addressEEPROMcrc)};
+size_t addressEEPROMcrc = {0};
+size_t addressEEPROMSettings = {addressEEPROMcrc + sizeof(addressEEPROMcrc)};
 
 unsigned long timeStartMainTConversion{0};
 unsigned long timeStartHeaterTConversion{0};
@@ -91,9 +91,9 @@ unsigned long timeStartMainTReadout{ULONG_MAX};
 unsigned long timeStartHeaterTReadout{ULONG_MAX};
 unsigned long timeStartRelayTReadout{ULONG_MAX};
 
-enum class State_t {run, setTargetT, setLimitHeaterT, error, man,
-                    setHeatingMode, setTargetDeltaT, setTemperatureStep,
-                    saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
+enum class State_t: uint8_t {run, setTargetT, setLimitHeaterT, error, man,
+                             setHeatingMode, setTargetDeltaT, setTemperatureStep,
+                             saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
 struct UI_t {
   unsigned long lastChange{0};
   State_t state{State_t::run};
@@ -251,7 +251,7 @@ ISR(PCINT0_vect) {
 void SaveSettings() {
   saveSettings=false;
   EEPROM.put(addressEEPROMSettings, param);
-  eepromCRC = CRC32::calculate(&param, 1);
+  eepromCRC = CRC32::calculate(&param, 1); //second arg is number of elements of decltype(first param)
   EEPROM.put(addressEEPROMcrc, eepromCRC);
   lcd.clear();
   lcd.print("saved");
@@ -270,13 +270,13 @@ bool RestoreSettings() {
 }
 
 void copyAddress(DeviceAddress source, DeviceAddress target) {
-  for (int i=0; i<8; ++i) {
+  for (byte i=0; i<8; ++i) {
     target[i] = source[i];
   }
 }
 
 bool equalAddress(DeviceAddress source, DeviceAddress target) {
-  for (int i=0; i<8; ++i) {
+  for (byte i=0; i<8; ++i) {
     if (target[i] != source[i]) return false;
   }
   return true;
