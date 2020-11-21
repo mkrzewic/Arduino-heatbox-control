@@ -21,7 +21,6 @@ constexpr uint8_t oneWirePinRelay = A3;
 constexpr uint8_t relaySSRpin = 13;
 constexpr uint8_t relayClickPin = A0;
 
-//
 constexpr unsigned long ULONG_MAX{0xffffffff};
 constexpr unsigned long thermoMainSamplingPeriod = 2000; //ms
 constexpr unsigned long thermoHeaterSamplingPeriod = 500; //ms
@@ -30,7 +29,8 @@ constexpr uint8_t iResolutionHeaterT = 2;
 constexpr uint8_t iResolutionRelayT = 2;
 constexpr unsigned int uiSpringBackDelay = 3500;
 
-//each sensor on a separate bus to avoid complications with sddresses when exchanging sensors
+//each sensor on a separate bus to avoid complications with 1-wire addressing
+//when exchanging sensors
 OneWire oneWireMain(oneWirePinMain);
 OneWire oneWireHeater(oneWirePinHeater);
 OneWire oneWireRelay(oneWirePinRelay);
@@ -53,7 +53,7 @@ constexpr uint8_t stepT[nResolutionsT] =                    {16, 32, 64};
 constexpr uint8_t tempSensorResolution[nResolutionsT] =     {11,    10,     9};
 constexpr uint8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
 
-// settable parameters
+//settable parameters
 struct Param_t {
   int16_t targetT{5120};
   int16_t limitHeaterT{8960};
@@ -154,7 +154,7 @@ struct UI_t {
       return ret;
     }
 
-  // TODO: minimize chance of overflow, multiplying stuff by 1000 goes to large numbers potentially
+  //TODO: minimize chance of overflow, multiplying stuff by 1000 goes to large numbers potentially
   template<typename T, typename U, typename V, typename W, typename X>
     void printAsFloat(T const x, X const valPerUnit, U& out, W const places, V base) {
       out.print(x / valPerUnit, base);
@@ -274,7 +274,7 @@ struct UI_t {
 
 UI_t ui{};
 
-// handle interrupt on bank 0
+//handle interrupts on bank 0
 ISR(PCINT0_vect) {
   encoder.tick(); // just call tick() to check the state.
   bounceTimer=millis()+50;
@@ -349,9 +349,8 @@ void setup()
   pinMode(relayClickPin, OUTPUT);
   pinMode(relaySSRpin, OUTPUT);
 
-} // setup()
+}
 
-// Read the current position of the encoder and print out when updated.
 void loop()
 {
 #ifdef DEBUG
@@ -362,6 +361,7 @@ void loop()
 
   ui.update(lcd);
 
+  //rotary encoder knob handling
   knobPosition[0] = encoder.getPosition();
   if (knobPosition[1]!=knobPosition[0]) {
     knobPosition[1]=knobPosition[0];
@@ -427,7 +427,7 @@ void loop()
     ui.jumpBackNow = 0;
   }
 
-  //read button
+  //encoder button handling
   if (bounceTimer!=0 && (millis()>bounceTimer)) {
     bounceTimer = 0;
     modeButton[1] = modeButton[0];
@@ -475,7 +475,7 @@ void loop()
     }
   }
 
-  // start conversion period for main
+  //start conversion period for main
   if (millis() > timeStartMainTConversion) {
     thermoMain.requestTemperatures();
     timeStartMainTConversion = millis() + thermoMainSamplingPeriod;
@@ -492,7 +492,7 @@ void loop()
     ui.redraw = true;
   }
 
-  // start conversion period for heater only if it is there
+  //start conversion period for heater only if it is there
   if (millis() > timeStartHeaterTConversion && devCountHeater>0) {
     if (devCountHeater > 0) {
       thermoHeater.requestTemperatures();
@@ -510,7 +510,7 @@ void loop()
     }
   }
 
-  // start conversion period for relay
+  //start conversion period for relay
   if (millis() > timeStartRelayTConversion) {
     thermoRelay.requestTemperatures();
     timeStartRelayTConversion = millis() + thermoRelaySamplingPeriod;
@@ -555,7 +555,7 @@ void loop()
   //control main relay
   heaterIsOn = (((param.heatingMode * slopeT) > 0) && ((param.heatingMode * slopeH) > 0)) ? 1 : -1;
 
-  // no need to access the hardware on every iteration, do it only when something changes
+  //no need to access the hardware on every iteration, do it only when something changes
   if ((heaterIsOn != heaterWasOn) && (running > 0)) {
 
 #ifdef DEBUG
@@ -600,4 +600,4 @@ void loop()
     acc = 0;
   }
 #endif
-} // loop ()
+}
