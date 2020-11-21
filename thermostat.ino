@@ -46,7 +46,7 @@ LiquidCrystal lcd(9,8,7,6,5,4);
 
 volatile unsigned long bounceTimer{0};
 uint8_t modeButton[2] = {1};
-int8_t knobPosition[2] = {0};
+int8_t knobPosition[2] = {0,1};
 
 constexpr uint8_t nResolutionsT = 3;
 constexpr uint8_t stepT[nResolutionsT] =                    {16, 32, 64};
@@ -92,6 +92,30 @@ unsigned long timeStartRelayTConversion{0};
 unsigned long timeStartMainTReadout{ULONG_MAX};
 unsigned long timeStartHeaterTReadout{ULONG_MAX};
 unsigned long timeStartRelayTReadout{ULONG_MAX};
+
+#ifdef DEBUG
+void DEBUGPRINT(const char* header = nullptr) {
+  if (header) Serial.println(header);
+  Serial.print("heatingMode: ");
+  Serial.println(param.heatingMode);
+  Serial.print("heaterIsOn: ");
+  Serial.println(heaterIsOn);
+  Serial.print("slopeT: ");
+  Serial.println(slopeT);
+  Serial.print("slopeH: ");
+  Serial.println(slopeH);
+  Serial.print("heaterMaxT: ");
+  Serial.println(heaterMaxT);
+  Serial.print("heaterMinT: ");
+  Serial.println(heaterMinT);
+  Serial.print("mainT: ");
+  Serial.println(mainT);
+  Serial.print("heaterT: ");
+  Serial.println(heaterT);
+  Serial.print("targetT: ");
+  Serial.println(param.targetT);
+}
+#endif
 
 enum class State_t: uint8_t {run, setTargetT, setLimitHeaterT, error, man,
                              setHeatingMode, setTargetDeltaT, setTemperatureStep,
@@ -309,37 +333,16 @@ void setup()
 
   pinMode(encoderButtonPin, INPUT_PULLUP);
 
-  //enable interrupts on bank b
+  //enable interrupts on bank 0
   PCICR |= (1 << PCIE0);
   PCMSK0 |= (1 << PCINT2) | (1 << PCINT3) | (1 << PCINT4);
 
   initSensors();
 
-  // switch the main switch ON, the delay before switching the SSR
-  // is covered by the reading of temperatures below (>90ms);
-  pinMode(relayClickPin, OUTPUT);  //goes to LOW by default, switching on the relay
+  digitalWriteFast(relayClickPin,HIGH);
+  pinMode(relayClickPin, OUTPUT);
   pinMode(relaySSRpin, OUTPUT);
 
-  //initial read of temperatures.
-  thermoMain.setWaitForConversion(true);
-  thermoHeater.setWaitForConversion(true);
-  thermoRelay.setWaitForConversion(true);
-
-  thermoMain.requestTemperatures();
-  mainT = thermoMain.getTemp(addrMain);
-
-  thermoHeater.requestTemperatures();
-  heaterT = thermoHeater.getTemp(addrHeater);
-
-  thermoRelay.requestTemperatures();
-  relayT = thermoRelay.getTemp(addrRelay);
-
-  thermoMain.setWaitForConversion(false);
-  thermoHeater.setWaitForConversion(false);
-  thermoRelay.setWaitForConversion(false);
-
-  heaterMaxT = max(param.targetT, param.limitHeaterT);
-  heaterMinT = min(param.targetT, param.limitHeaterT);
 } // setup()
 
 // Read the current position of the encoder and print out when updated.
@@ -357,31 +360,32 @@ void loop()
   if (knobPosition[1]!=knobPosition[0]) {
     knobPosition[1]=knobPosition[0];
     ui.tick();
+    auto dir = encoder.getDirection();
     switch (ui.state) {
       case State_t::run:
-        if  (encoder.getDirection() == RotaryEncoder::Direction::CLOCKWISE) {
+        if  (dir == RotaryEncoder::Direction::CLOCKWISE) {
           ui.changeState(State_t::man);
-        } else {
+        } else if ( dir == RotaryEncoder::Direction::COUNTERCLOCKWISE) {
           ui.changeState(State_t::showTemperatures);
         }
         break;
       case State_t::setTargetT:
-        param.targetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
+        param.targetT += static_cast<int8_t>(dir) * stepT[param.iStepT];
         if (param.heatingMode*param.targetT > param.heatingMode*param.maxTargetT) { param.targetT = param.maxTargetT; }
         break;
       case State_t::setLimitHeaterT:
-        param.limitHeaterT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionHeaterT];
+        param.limitHeaterT += static_cast<int8_t>(dir) * stepT[iResolutionHeaterT];
         break;
       case State_t::setHeatingMode:
-        param.heatingMode = static_cast<int8_t>(encoder.getDirection());
+        param.heatingMode = static_cast<int8_t>(dir);
         break;
       case State_t::setTargetDeltaT:
-        param.hysteresisT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
+        param.hysteresisT += static_cast<int8_t>(dir) * stepT[param.iStepT];
         if (param.hysteresisT<stepT[param.iStepT]) { param.hysteresisT = stepT[param.iStepT]; }
         break;
       case State_t::setTemperatureStep:
         static int8_t dir{0};
-        dir = static_cast<int8_t>(encoder.getDirection());
+        dir = static_cast<int8_t>(dir);
         if ((dir > 0) && (param.iStepT == nResolutionsT-1)) {
         } else if ((dir < 0) && (param.iStepT == 0)) {
         } else {
@@ -391,13 +395,13 @@ void loop()
         if (param.hysteresisT < stepT[param.iStepT]) { param.hysteresisT = stepT[param.iStepT]; }
         break;
       case State_t::saveSettings:
-        static_cast<int8_t>(encoder.getDirection())==1 ? saveSettings=true : saveSettings=false ;
+        static_cast<int8_t>(dir)==1 ? saveSettings=true : saveSettings=false ;
         break;
       case State_t::setLimitRelayT:
-        param.maxRelayT += static_cast<int8_t>(encoder.getDirection()) * stepT[iResolutionRelayT];
+        param.maxRelayT += static_cast<int8_t>(dir) * stepT[iResolutionRelayT];
         break;
       case State_t::setMaxTargetT:
-        param.maxTargetT += static_cast<int8_t>(encoder.getDirection()) * stepT[param.iStepT];
+        param.maxTargetT += static_cast<int8_t>(dir) * stepT[param.iStepT];
         break;
       case State_t::showTemperatures:
         ui.changeState(State_t::man);
@@ -409,6 +413,9 @@ void loop()
     limitHeaterOther = (param.targetT + param.limitHeaterT)/2;
     heaterMaxT = max(limitHeaterOther, param.limitHeaterT);
     heaterMinT = min(limitHeaterOther, param.limitHeaterT);
+#ifdef DEBUG
+DEBUGPRINT("knob handler");
+#endif
   }
 
   if ((ui.lastChange != 0) && ((millis()-ui.lastChange) > uiSpringBackDelay)) {
@@ -546,23 +553,9 @@ void loop()
 
   // no need to access the hardware on every iteration, do it only when something changes
   if ((heaterIsOn != heaterWasOn) && (running > 0)) {
+
 #ifdef DEBUG
-  Serial.print("heatingMode: ");
-  Serial.println(param.heatingMode);
-  Serial.print("heaterIsOn: ");
-  Serial.println(heaterIsOn);
-  Serial.print("slopeT: ");
-  Serial.println(slopeT);
-  Serial.print("slopeH: ");
-  Serial.println(slopeH);
-  Serial.print("heaterMaxT: ");
-  Serial.println(heaterMaxT);
-  Serial.print("heaterMinT: ");
-  Serial.println(heaterMinT);
-  Serial.print("mainT: ");
-  Serial.println(mainT);
-  Serial.print("heaterT: ");
-  Serial.println(heaterT);
+DEBUGPRINT("heater handler");
 #endif
 
     digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
