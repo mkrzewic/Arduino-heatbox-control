@@ -118,8 +118,8 @@ void DEBUGPRINT(const char* header = nullptr) {
 #endif
 
 enum class State_t: uint8_t {run, setTargetT, setLimitHeaterT, error, man,
-                             setHeatingMode, setTargetDeltaT, setTemperatureStep,
-                             saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
+  setHeatingMode, setTargetDeltaT, setTemperatureStep,
+  saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
 struct UI_t {
   unsigned long jumpBackNow{0};
   State_t state{State_t::run};
@@ -359,32 +359,30 @@ void loop()
   if (knobPosition[1]!=knobPosition[0]) {
     knobPosition[1]=knobPosition[0];
     ui.tick();
-    auto dir = encoder.getDirection();
+    auto dir = static_cast<int8_t>(encoder.getDirection());
     switch (ui.state) {
       case State_t::run:
-        if  (dir == RotaryEncoder::Direction::CLOCKWISE) {
+        if  (dir > 0) {
           ui.changeState(State_t::man);
-        } else if ( dir == RotaryEncoder::Direction::COUNTERCLOCKWISE) {
+        } else if ( dir < 0 ) {
           ui.changeState(State_t::showTemperatures);
         }
         break;
       case State_t::setTargetT:
-        param.targetT += static_cast<int8_t>(dir) * stepT[param.iStepT];
+        param.targetT += dir * stepT[param.iStepT];
         if (param.heatingMode*param.targetT > param.heatingMode*param.maxTargetT) { param.targetT = param.maxTargetT; }
         break;
       case State_t::setLimitHeaterT:
-        param.limitHeaterT += static_cast<int8_t>(dir) * stepT[iResolutionHeaterT];
+        param.limitHeaterT += dir * stepT[iResolutionHeaterT];
         break;
       case State_t::setHeatingMode:
-        param.heatingMode = static_cast<int8_t>(dir);
+        param.heatingMode = dir;
         break;
       case State_t::setTargetDeltaT:
-        param.hysteresisT += static_cast<int8_t>(dir) * stepT[param.iStepT];
+        param.hysteresisT += dir * stepT[param.iStepT];
         if (param.hysteresisT<stepT[param.iStepT]) { param.hysteresisT = stepT[param.iStepT]; }
         break;
       case State_t::setTemperatureStep:
-        static int8_t dir{0};
-        dir = static_cast<int8_t>(dir);
         if ((dir > 0) && (param.iStepT == nResolutionsT-1)) {
         } else if ((dir < 0) && (param.iStepT == 0)) {
         } else {
@@ -394,13 +392,13 @@ void loop()
         if (param.hysteresisT < stepT[param.iStepT]) { param.hysteresisT = stepT[param.iStepT]; }
         break;
       case State_t::saveSettings:
-        static_cast<int8_t>(dir)==1 ? saveSettings=true : saveSettings=false ;
+        dir == 1 ? saveSettings=true : saveSettings=false ;
         break;
       case State_t::setLimitRelayT:
-        param.maxRelayT += static_cast<int8_t>(dir) * stepT[iResolutionRelayT];
+        param.maxRelayT += dir * stepT[iResolutionRelayT];
         break;
       case State_t::setMaxTargetT:
-        param.maxTargetT += static_cast<int8_t>(dir) * stepT[param.iStepT];
+        param.maxTargetT += dir * stepT[param.iStepT];
         break;
       case State_t::showTemperatures:
         ui.changeState(State_t::man);
@@ -413,7 +411,7 @@ void loop()
     heaterMaxT = max(limitHeaterOther, param.limitHeaterT);
     heaterMinT = min(limitHeaterOther, param.limitHeaterT);
 #ifdef DEBUG
-DEBUGPRINT("knob handler");
+    DEBUGPRINT("knob handler");
 #endif
   }
 
@@ -428,45 +426,45 @@ DEBUGPRINT("knob handler");
     modeButton[1] = modeButton[0];
     modeButton[0] = digitalReadFast(encoderButtonPin);
     if (modeButton[0] < modeButton[1]) {
-    switch(ui.state) {
-      case State_t::run:
-        ui.changeState(State_t::setTargetT);
-        break;
-      case State_t::setTargetT:
-        ui.changeState(State_t::setLimitHeaterT);
-        break;
-      case State_t::setLimitHeaterT:
-        ui.changeState(State_t::setTargetDeltaT);
-        break;
-      case State_t::setTargetDeltaT:
-        ui.changeState(State_t::setTemperatureStep);
-        break;
-      case State_t::setTemperatureStep:
-        ui.changeState(State_t::setMaxTargetT);
-        break;
-      case State_t::setMaxTargetT:
-        ui.changeState(State_t::setLimitRelayT);
-        break;
-      case State_t::setLimitRelayT:
-        ui.changeState(State_t::setHeatingMode);
-        break;
-      case State_t::setHeatingMode:
-        ui.changeState(State_t::saveSettings);
-        break;
-      case State_t::saveSettings:
-        if (saveSettings) { SaveSettings(); ui.changeState(State_t::run);}
-        ui.changeState(State_t::run);
-        break;
-      case State_t::error:
-        break;
-      case State_t::man:
-        ui.changeState(State_t::setTargetT);
-        break;
-      case State_t::showTemperatures:
-        break;
-      default:
-        break;
-    }
+      switch(ui.state) {
+        case State_t::run:
+          ui.changeState(State_t::setTargetT);
+          break;
+        case State_t::setTargetT:
+          ui.changeState(State_t::setLimitHeaterT);
+          break;
+        case State_t::setLimitHeaterT:
+          ui.changeState(State_t::setTargetDeltaT);
+          break;
+        case State_t::setTargetDeltaT:
+          ui.changeState(State_t::setTemperatureStep);
+          break;
+        case State_t::setTemperatureStep:
+          ui.changeState(State_t::setMaxTargetT);
+          break;
+        case State_t::setMaxTargetT:
+          ui.changeState(State_t::setLimitRelayT);
+          break;
+        case State_t::setLimitRelayT:
+          ui.changeState(State_t::setHeatingMode);
+          break;
+        case State_t::setHeatingMode:
+          ui.changeState(State_t::saveSettings);
+          break;
+        case State_t::saveSettings:
+          if (saveSettings) { SaveSettings(); }
+          ui.changeState(State_t::run);
+          break;
+        case State_t::error:
+          break;
+        case State_t::man:
+          ui.changeState(State_t::setTargetT);
+          break;
+        case State_t::showTemperatures:
+          break;
+        default:
+          break;
+      }
     }
   }
 
@@ -554,7 +552,7 @@ DEBUGPRINT("knob handler");
   if ((heaterIsOn != heaterWasOn) && (running > 0)) {
 
 #ifdef DEBUG
-DEBUGPRINT("heater handler");
+    DEBUGPRINT("heater handler");
 #endif
 
     digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
