@@ -121,7 +121,7 @@ enum class State_t: uint8_t {run, setTargetT, setLimitHeaterT, error, man,
                              setHeatingMode, setTargetDeltaT, setTemperatureStep,
                              saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
 struct UI_t {
-  unsigned long lastChange{0};
+  unsigned long jumpBackNow{0};
   State_t state{State_t::run};
   State_t lastState{State_t::man};
   bool redraw{true};
@@ -130,17 +130,16 @@ struct UI_t {
   void changeState(State_t newState){
     lastState = state;
     state = newState;
-    lastChange = millis();
-    redraw = true;
+    tick();
   }
 
-  void tick() {redraw = true; lastChange = millis();}
+  void tick() { redraw = true; jumpBackNow = millis() + uiSpringBackDelay; }
 
   void error(const char* message ) {
     running=-1;
     errorMsg = message;
     state = State_t::error;
-    lastChange = 0;
+    jumpBackNow = 0;
     redraw = true;
   }
 
@@ -271,7 +270,7 @@ UI_t ui{};
 // handle interrupt on bank 0
 ISR(PCINT0_vect) {
   encoder.tick(); // just call tick() to check the state.
-  bounceTimer=millis();
+  bounceTimer=millis()+50;
 }
 
 void SaveSettings() {
@@ -418,13 +417,13 @@ DEBUGPRINT("knob handler");
 #endif
   }
 
-  if ((ui.lastChange != 0) && ((millis()-ui.lastChange) > uiSpringBackDelay)) {
+  if ((ui.jumpBackNow != 0) && (millis() > ui.jumpBackNow)) {
     ui.changeState(State_t::run);
-    ui.lastChange = 0;
+    ui.jumpBackNow = 0;
   }
 
   //read button
-  if (bounceTimer!=0 && ((millis()-bounceTimer)>50)) {
+  if (bounceTimer!=0 && (millis()>bounceTimer)) {
     bounceTimer = 0;
     modeButton[1] = modeButton[0];
     modeButton[0] = digitalReadFast(encoderButtonPin);
