@@ -81,8 +81,10 @@ uint8_t devCountMain{0};
 uint8_t devCountHeater{0};
 uint8_t devCountRelay{0};
 uint32_t eepromCRC{0};
-size_t addressEEPROMcrc = {0};
-size_t addressEEPROMSettings = {addressEEPROMcrc + sizeof(addressEEPROMcrc)};
+
+//TODO: using size_t here does not work - why?
+constexpr uint32_t addressEEPROMcrc = {0};
+constexpr uint32_t addressEEPROMSettings = {addressEEPROMcrc + sizeof(addressEEPROMcrc)};
 
 unsigned long timeStartMainTConversion{0};
 unsigned long timeStartHeaterTConversion{0};
@@ -267,19 +269,6 @@ bool RestoreSettings() {
     return true;
   }
   return false;
-}
-
-void copyAddress(DeviceAddress source, DeviceAddress target) {
-  for (byte i=0; i<8; ++i) {
-    target[i] = source[i];
-  }
-}
-
-bool equalAddress(DeviceAddress source, DeviceAddress target) {
-  for (byte i=0; i<8; ++i) {
-    if (target[i] != source[i]) return false;
-  }
-  return true;
 }
 
 void initSensors() {
