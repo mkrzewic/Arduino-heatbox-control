@@ -354,10 +354,11 @@ void setup()
 void loop()
 {
 #ifdef DEBUG
-  static unsigned long tajm{0},acc{0};
-  static unsigned long counter{0};
+  static unsigned long tajm{0};
   tajm=micros();
 #endif
+  static unsigned long loopMillis{0};
+  loopMillis = millis();
 
   ui.update(lcd);
 
@@ -422,13 +423,13 @@ void loop()
 #endif
   }
 
-  if ((ui.jumpBackNow != 0) && (millis() > ui.jumpBackNow)) {
+  if ((ui.jumpBackNow != 0) && (loopMillis > ui.jumpBackNow)) {
     ui.changeState(State_t::run);
     ui.jumpBackNow = 0;
   }
 
   //encoder button handling
-  if (bounceTimer!=0 && (millis()>bounceTimer)) {
+  if (bounceTimer!=0 && (loopMillis > bounceTimer)) {
     bounceTimer = 0;
     modeButton[1] = modeButton[0];
     modeButton[0] = digitalReadFast(encoderButtonPin);
@@ -476,14 +477,14 @@ void loop()
   }
 
   //start conversion period for main
-  if (millis() > timeStartMainTConversion) {
+  if (loopMillis > timeStartMainTConversion) {
     thermoMain.requestTemperatures();
     timeStartMainTConversion = millis() + thermoMainSamplingPeriod;
     timeStartMainTReadout = millis() + thermoMain.millisToWaitForConversion();
   }
 
   //read teperatures from main sensor
-  if (millis() > timeStartMainTReadout) {
+  if (loopMillis > timeStartMainTReadout) {
     timeStartMainTReadout = ULONG_MAX;
     mainT = thermoMain.getTemp(addrMain);
     if (mainT == DEVICE_DISCONNECTED_RAW) {
@@ -493,7 +494,7 @@ void loop()
   }
 
   //start conversion period for heater only if it is there
-  if (millis() > timeStartHeaterTConversion && devCountHeater>0) {
+  if (loopMillis > timeStartHeaterTConversion && devCountHeater>0) {
     if (devCountHeater > 0) {
       thermoHeater.requestTemperatures();
       timeStartHeaterTConversion = millis() + thermoHeaterSamplingPeriod;
@@ -502,7 +503,7 @@ void loop()
   }
 
   //read teperatures from heater sensor
-  if (millis() > timeStartHeaterTReadout) {
+  if (loopMillis > timeStartHeaterTReadout) {
     timeStartHeaterTReadout = ULONG_MAX;
     heaterT = thermoHeater.getTemp(addrHeater);
     if (heaterT == DEVICE_DISCONNECTED_RAW) {
@@ -511,7 +512,7 @@ void loop()
   }
 
   //start conversion period for relay
-  if (millis() > timeStartRelayTConversion) {
+  if (loopMillis > timeStartRelayTConversion) {
     thermoRelay.requestTemperatures();
     timeStartRelayTConversion = millis() + thermoRelaySamplingPeriod;
     timeStartRelayTReadout = millis() + thermoRelay.millisToWaitForConversion();
@@ -519,7 +520,7 @@ void loop()
 
   static int8_t skipRelayCheck{0};
   //read teperatures from relay sensor
-  if (millis() > timeStartRelayTReadout) {
+  if (loopMillis > timeStartRelayTReadout) {
     timeStartRelayTReadout = ULONG_MAX;
     relayT = thermoRelay.getTemp(addrRelay);
     if (relayT == DEVICE_DISCONNECTED_RAW) {
@@ -592,6 +593,8 @@ void loop()
   }
 
 #ifdef DEBUG
+  static unsigned long acc{0};
+  static unsigned long counter{0};
   acc += micros() - tajm;
   counter++;
   if (counter == 10000) {
