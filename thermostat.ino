@@ -120,6 +120,7 @@ void DEBUGPRINT(const char* header = nullptr) {
 enum class State_t: uint8_t {run, setTargetT, setLimitHeaterT, error, man,
   setHeatingMode, setTargetDeltaT, setTemperatureStep,
   saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
+
 struct UI_t {
   unsigned long jumpBackNow{0};
   State_t state{State_t::run};
@@ -238,7 +239,13 @@ struct UI_t {
         break;
       case State_t::saveSettings:
         lcd.print("Save as defaults");
-        lcd.setCursor(2,1); (saveSettings)?lcd.print("press to save"):lcd.print("no");
+        if (saveSettings) {
+          lcd.setCursor(2,1);
+          lcd.print("press to save");
+        } else {
+          lcd.setCursor(2,1);
+          lcd.print("no           ");
+        }
         break;
       case State_t::setLimitRelayT:
         lcd.print("Max relay T");
