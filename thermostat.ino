@@ -147,9 +147,8 @@ struct UI_t {
   template<typename T>
     T intpow(T base, T exponent) {
       T ret{1};
-      while (exponent>0) {
+      while (0 < exponent--) {
         ret *= base;
-        exponent--;
       }
       return ret;
     }
@@ -160,7 +159,7 @@ struct UI_t {
       out.print(x / valPerUnit, base);
       out.print(".");
       // TODO: here be dragons
-      auto nb = out.print(abs(int32_t(x % valPerUnit)*intpow<int16_t>(10,places)/valPerUnit), base);
+      auto nb = out.print(abs(int32_t(x % valPerUnit)*intpow<int16_t>(base,places)/valPerUnit), base);
       for (; nb < places; ++nb) {
         out.print("0");
       }
@@ -168,7 +167,7 @@ struct UI_t {
 
   template<typename U>
     void printDallasTempC(int32_t const raw, U& out, uint8_t const places) {
-      printAsFloat(int32_t(raw), uint16_t(128), out, places, DEC);
+      printAsFloat(int32_t(raw), uint32_t(128), out, places, DEC);
       out.print(char(223));
       out.print("C ");
     }
