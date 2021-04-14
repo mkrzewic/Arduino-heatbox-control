@@ -1,5 +1,5 @@
+#include <Adafruit_SSD1306.h>
 #include <RotaryEncoder.h>
-#include <LiquidCrystal.h>
 #include <digitalWriteFast.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -29,6 +29,16 @@ constexpr uint8_t iResolutionHeaterT = 2;
 constexpr uint8_t iResolutionRelayT = 2;
 constexpr unsigned int uiSpringBackDelay = 3500;
 
+// OLED display stuff
+constexpr uint8_t oled_screen_width = 128;
+constexpr uint8_t oled_screen_height = 64;
+constexpr uint8_t oled_reset_pin = 4;
+constexpr uint8_t oled_address = 0x3C;
+constexpr uint8_t largeTextSize = 3;
+constexpr uint8_t smallTextSize = 1;
+
+Adafruit_SSD1306 lcd(oled_screen_width, oled_screen_height, &Wire, 4);
+
 //each sensor on a separate bus to avoid complications with 1-wire addressing
 //when exchanging sensors
 OneWire oneWireMain(oneWirePinMain);
@@ -42,7 +52,6 @@ DeviceAddress addrHeater;
 DeviceAddress addrRelay;
 
 RotaryEncoder encoder(encoderPin1, encoderPin2);
-LiquidCrystal lcd(9,8,7,6,5,4);
 
 volatile unsigned long bounceTimer{0};
 uint8_t modeButton[2] = {1};
@@ -73,14 +82,17 @@ int16_t heaterT = {0};
 int16_t relayT = {0};
 int8_t slopeT = {-1};
 int8_t slopeH = {-1};
-int8_t running = {-1}; //start in the off state
-int8_t wasrunning = {0};
+uint8_t errors = {1}; //start in the off state
+int8_t waserrors = {0};
 int8_t heaterIsOn{0}, heaterWasOn{0};
 bool saveSettings{false};
 uint8_t devCountMain{0};
 uint8_t devCountHeater{0};
 uint8_t devCountRelay{0};
 uint32_t eepromCRC{0};
+uint8_t nWeirdValuesRelayT{0};
+uint8_t nWeirdValuesMainT{0};
+uint8_t nWeirdValuesHeaterT{0};
 
 //TODO: using size_t here does not work - why?
 constexpr uint32_t addressEEPROMcrc = {0};
@@ -96,34 +108,37 @@ unsigned long timeStartRelayTReadout{ULONG_MAX};
 #ifdef DEBUG
 void DEBUGPRINT(const char* header = nullptr) {
   if (header) Serial.println(header);
-  Serial.print("heatingMode: ");
+  Serial.print(F("heatingMode: "));
   Serial.println(param.heatingMode);
-  Serial.print("heaterIsOn: ");
+  Serial.print(F("heaterIsOn: "));
   Serial.println(heaterIsOn);
-  Serial.print("slopeT: ");
+  Serial.print(F("slopeT: "));
   Serial.println(slopeT);
-  Serial.print("slopeH: ");
+  Serial.print(F("slopeH: "));
   Serial.println(slopeH);
-  Serial.print("heaterMaxT: ");
+  Serial.print(F("heaterMaxT: "));
   Serial.println(heaterMaxT);
-  Serial.print("heaterMinT: ");
+  Serial.print(F("heaterMinT: "));
   Serial.println(heaterMinT);
-  Serial.print("mainT: ");
+  Serial.print(F("mainT: "));
   Serial.println(mainT);
-  Serial.print("heaterT: ");
+  Serial.print(F("heaterT: "));
   Serial.println(heaterT);
-  Serial.print("targetT: ");
+  Serial.print(F("targetT: "));
   Serial.println(param.targetT);
 }
 #endif
 
-enum class State_t: uint8_t {run, setTargetT, setLimitHeaterT, error, man,
+enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, man,
   setHeatingMode, setTargetDeltaT, setTemperatureStep,
   saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
 
+enum class Error_t: int {relayOverheated, badMainSensor, badHeaterSensor, badRelaySensor};
+const char* errorString[] = {"relay overheated", "main sensor", "heater sensor", "relay sensor"};
+
 struct UI_t {
-  unsigned long jumpBackNow{0};
-  State_t state{State_t::run};
+  unsigned long jumpBackNow{0}; 
+  State_t state{State_t::overview};
   State_t lastState{State_t::man};
   bool redraw{true};
   const char* errorMsg;
@@ -136,11 +151,14 @@ struct UI_t {
 
   void tick() { redraw = true; jumpBackNow = millis() + uiSpringBackDelay; }
 
-  void error(const char* message ) {
-    running=-1;
-    errorMsg = message;
-    state = State_t::error;
-    jumpBackNow = 0;
+  void error(Error_t error) {
+    BIT_SET(errors, static_cast<int>(error));
+    errorMsg = errorString[static_cast<int>(error)];
+    redraw = true;
+  }
+ 
+  void clear(Error_t error) {
+    BIT_CLEAR(errors, static_cast<int>(error));
     redraw = true;
   }
 
@@ -157,7 +175,7 @@ struct UI_t {
   template<typename T, typename U, typename V, typename W, typename X>
     void printAsFloat(T const x, X const valPerUnit, U& out, W const places, V base) {
       out.print(x / valPerUnit, base);
-      out.print(".");
+      out.write('.');
       // TODO: here be dragons
       auto nb = out.print(abs(int32_t(x % valPerUnit)*intpow<int16_t>(base,places)/valPerUnit), base);
       for (; nb < places; ++nb) {
@@ -167,107 +185,138 @@ struct UI_t {
 
   template<typename U>
     void printDallasTempC(int32_t const raw, U& out, uint8_t const places) {
-      printAsFloat(int32_t(raw), uint32_t(128), out, places, DEC);
-      out.print(char(223));
-      out.print("C ");
+      printAsFloat(int32_t(raw), int32_t(128), out, places, DEC);
+      out.setTextSize(1);
+      out.write(248);
+      out.write('C');
     }
 
-  void update(LiquidCrystal& lcd) {
+  void update() {
     if (!redraw) return;
     redraw = false;
-    if (lastState!=state) { lcd.clear(); lastState = state; }
-    lcd.home();
+    lcd.clearDisplay();
+    lcd.setTextSize(smallTextSize);
+    lcd.setTextColor(SSD1306_WHITE);
+    if (lastState!=state) { lastState = state; }
+    lcd.setCursor(0,0);
     switch(state) {
-      case State_t::run:
-        if (running==-1 && relayT > param.maxRelayT) {
-          lcd.print("relay overheated");
-        } else {
-          if (slopeT>0 && param.heatingMode>0) {
-            lcd.print(heaterIsOn>0?"HEAT":"heat");
-          } else if (slopeT<0 && param.heatingMode<0) {
-            lcd.print(heaterIsOn>0?"COOL":"cool");
-          } else {
-            lcd.print("steady");
-          }
-          lcd.print("    ");
-          lcd.setCursor(8,0);
+      case State_t::overview:
+        if (errors != 0) {
+          lcd.setTextSize(largeTextSize);
+          lcd.println(F("error:"));
+          lcd.setTextSize(smallTextSize);
+          lcd.println(errorMsg);
+          lcd.setCursor(0,40);
+          lcd.setTextSize(largeTextSize);
+          lcd.setTextColor(SSD1306_WHITE);
           printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
+        } else {
+          if (param.heatingMode>0) {
+            lcd.println(F("Heat"));
+          } else {
+            lcd.println(F("Cool"));
+          }
+          lcd.print(F("to"));
+          lcd.setCursor(32,0);
+          lcd.setTextSize(2*smallTextSize);
+          printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
+          lcd.println();
+          lcd.setCursor(0,24);
+          if (heaterIsOn > 0) { for (uint8_t i=0; i<21; ++i) lcd.write(176); }
         }
-        lcd.setCursor(0,1);
-        lcd.print(char(126));
-        lcd.setCursor(8,1);
-        printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
+        
+        lcd.setCursor(0,40);
+        lcd.setTextSize(largeTextSize);
+        printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setTargetT:
-        lcd.print("Set temperature");
-        lcd.setCursor(6,2);
+        lcd.println(F("Set temperature"));
+        lcd.println();
+        lcd.setTextSize(largeTextSize);
         printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setLimitHeaterT:
-        param.heatingMode>0 ? lcd.print("Max heater T") : lcd.print("Min cooler T");
-        lcd.setCursor(6,1);
+        param.heatingMode>0 ? lcd.println(F("Max heater T")) : lcd.println(F("Min cooler T"));
+        lcd.println();
+        lcd.setTextSize(largeTextSize);
         printDallasTempC(param.limitHeaterT, lcd, displayPrecision[iResolutionHeaterT]);
         break;
       case State_t::setHeatingMode:
-        lcd.print("Set cool <> heat");
-        lcd.setCursor(8,1);
-        lcd.print(param.heatingMode<0?"cool":"heat");
+        lcd.println(F("Set cool <> heat"));
+        lcd.println();
+        lcd.setTextSize(largeTextSize);
+        lcd.print(param.heatingMode<0?F("cool"):F("heat"));
         break;
       case State_t::setTargetDeltaT:
-        lcd.print("T variation");
-        lcd.setCursor(6,1);
+        lcd.println(F("T variation"));
+        lcd.println();
+        lcd.setTextSize(largeTextSize);
         printDallasTempC(param.hysteresisT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setTemperatureStep:
-        lcd.print("T precision");
-        lcd.setCursor(6, 1);
+        lcd.println(F("T precision"));
+        lcd.println();
+        lcd.setTextSize(largeTextSize);
         printDallasTempC(stepT[param.iStepT], lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::showTemperatures:
-        param.heatingMode > 0 ? lcd.print("heater:") : lcd.print("cooler");;
-        lcd.setCursor(8,0);
+        lcd.print(F("main: "));
+        printDallasTempC(mainT, lcd, displayPrecision[iResolutionHeaterT]);
+        lcd.println();
+        param.heatingMode > 0 ? lcd.print(F("heater: ")) : lcd.print(F("cooler: "));;
         if (devCountHeater==0) {
           lcd.print("?");
         } else {
           printDallasTempC(heaterT, lcd, displayPrecision[iResolutionHeaterT]);
         }
-        lcd.setCursor(0,1);
-        lcd.print("relay:");
-        lcd.setCursor(8,1);
+        lcd.println();
+        lcd.print(F("relay: "));
         printDallasTempC(relayT, lcd, displayPrecision[iResolutionRelayT]);
+        lcd.println();
+        lcd.print(F("weird values: "));
+        lcd.print(nWeirdValuesMainT);
+        lcd.write(' ');
+        lcd.print(nWeirdValuesHeaterT);
+        lcd.write(' ');
+        lcd.println(nWeirdValuesRelayT);
+        lcd.print(F("SSR: "));
+        lcd.println(digitalReadFast(relaySSRpin));
+        lcd.print(F("Click: "));
+        lcd.println(!digitalReadFast(relayClickPin));
+        lcd.print("errors: ");
+        lcd.println(errors,HEX);
         break;
       case State_t::saveSettings:
-        lcd.print("Save as defaults");
+        lcd.println(F("Save as defaults"));
+        lcd.println();
+        lcd.setTextSize(largeTextSize);
         if (saveSettings) {
-          lcd.setCursor(2,1);
-          lcd.print("press to save");
+          lcd.println(F("press"));
+          lcd.print(F("to save"));
         } else {
-          lcd.setCursor(2,1);
-          lcd.print("no           ");
+          lcd.print(F("no           "));
         }
         break;
       case State_t::setLimitRelayT:
-        lcd.print("Max relay T");
-        lcd.setCursor(8,1);
+        lcd.println(F("Max relay T"));
+        lcd.println();
+        lcd.setTextSize(largeTextSize);
         printDallasTempC(param.maxRelayT, lcd, displayPrecision[iResolutionRelayT]);
         break;
       case State_t::setMaxTargetT:
-        param.heatingMode>0 ? lcd.print("Max settable T") : lcd.print("Min settable T");
-        lcd.setCursor(8,1);
+        param.heatingMode>0 ? lcd.println(F("Max settable T")) : lcd.println(F("Min settable T"));
+        lcd.println();
+        lcd.setTextSize(largeTextSize);
         printDallasTempC(param.maxTargetT, lcd, displayPrecision[param.iStepT]);
         break;
-      case State_t::error:
-        lcd.print("error:");
-        lcd.setCursor(0,1);
-        lcd.print(errorMsg);
-        exit(0);
-        break;
       case State_t::man:
-        lcd.print("    Press to    ");
-        lcd.setCursor(0,1);
-        lcd.print("change settings");
+        lcd.setTextSize(2);
+        lcd.println(F("Press to"));
+        lcd.println(F("change"));
+        lcd.print(F("settings")); 
         break;
     }
+    lcd.display();
   }
 };
 
@@ -284,7 +333,7 @@ void SaveSettings() {
   EEPROM.put(addressEEPROMSettings, param);
   eepromCRC = CRC32::calculate(&param, 1); //second arg is number of elements of decltype(first param)
   EEPROM.put(addressEEPROMcrc, eepromCRC);
-  lcd.clear();
+  lcd.clearDisplay();
   lcd.print("saved");
   delay(1000);
 }
@@ -307,11 +356,11 @@ void initSensors() {
   devCountMain = thermoMain.getDeviceCount();
   devCountHeater = thermoHeater.getDeviceCount();
   devCountRelay = thermoRelay.getDeviceCount();
-  if (devCountMain==0) {ui.error("no main sensor");}
-  if (devCountRelay==0) {ui.error("no relay sensor");}
-  if (!thermoMain.getAddress(addrMain,0)) {ui.error("no main sensor");}
+  if (devCountMain==0) {ui.error(Error_t::badMainSensor);}
+  if (devCountRelay==0) {ui.error(Error_t::badRelaySensor);}
+  if (!thermoMain.getAddress(addrMain,0)) {ui.error(Error_t::badMainSensor);}
   if (!thermoHeater.getAddress(addrHeater,0)) {}
-  if (!thermoRelay.getAddress(addrRelay,0)) {ui.error("no relay sensor");}
+  if (!thermoRelay.getAddress(addrRelay,0)) {ui.error(Error_t::badRelaySensor);}
   thermoMain.setResolution(tempSensorResolution[param.iStepT]);
   thermoHeater.setResolution(tempSensorResolution[iResolutionHeaterT]);
   thermoRelay.setResolution(tempSensorResolution[iResolutionRelayT]);
@@ -323,18 +372,29 @@ void setup()
   Serial.begin(115200);
 #endif
 
-  lcd.begin(16,2);
+  if(!lcd.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+#ifdef DEBUG
+      Serial.println(F("SSD1306 allocation failed"));
+#endif
+    for(;;); // Don't proceed, loop forever
+  }
+  
+  lcd.setTextColor(SSD1306_WHITE);
+  lcd.cp437(true);
+  lcd.dim(true);
+  
   if (!RestoreSettings()) {
-    lcd.clear();
-    lcd.print("  EEPROM error");
-    lcd.setCursor(0,1);
-    lcd.print("fallback default");
+    lcd.clearDisplay();
+    lcd.println(F("  EEPROM error"));
+    lcd.print(F("fallback default"));
+    lcd.display();
     delay(1000);
     SaveSettings();  //maybe a new board or something went wrong, store defaults
   }
 
-  lcd.clear();
-  lcd.print("       MKr");
+  lcd.clearDisplay();
+  lcd.print(F("       MKr"));
+  lcd.display();
 
   pinMode(encoderButtonPin, INPUT_PULLUP);
 
@@ -359,7 +419,7 @@ void loop()
   static unsigned long loopMillis{0};
   loopMillis = millis();
 
-  ui.update(lcd);
+  ui.update();
 
   //rotary encoder knob handling
   knobPosition[0] = encoder.getPosition();
@@ -368,7 +428,7 @@ void loop()
     ui.tick();
     auto dir = static_cast<int8_t>(encoder.getDirection());
     switch (ui.state) {
-      case State_t::run:
+      case State_t::overview:
         if  (dir > 0) {
           ui.changeState(State_t::man);
         } else if ( dir < 0 ) {
@@ -423,7 +483,7 @@ void loop()
   }
 
   if ((ui.jumpBackNow != 0) && (loopMillis > ui.jumpBackNow)) {
-    ui.changeState(State_t::run);
+    ui.changeState(State_t::overview);
     ui.jumpBackNow = 0;
   }
 
@@ -434,7 +494,7 @@ void loop()
     modeButton[0] = digitalReadFast(encoderButtonPin);
     if (modeButton[0] < modeButton[1]) {
       switch(ui.state) {
-        case State_t::run:
+        case State_t::overview:
           ui.changeState(State_t::setTargetT);
           break;
         case State_t::setTargetT:
@@ -460,9 +520,7 @@ void loop()
           break;
         case State_t::saveSettings:
           if (saveSettings) { SaveSettings(); }
-          ui.changeState(State_t::run);
-          break;
-        case State_t::error:
+          ui.changeState(State_t::overview);
           break;
         case State_t::man:
           ui.changeState(State_t::setTargetT);
@@ -486,8 +544,11 @@ void loop()
   if (loopMillis > timeStartMainTReadout) {
     timeStartMainTReadout = ULONG_MAX;
     mainT = thermoMain.getTemp(addrMain);
+    
     if (mainT == DEVICE_DISCONNECTED_RAW) {
-      ui.error("bad main sensor");
+      ui.error(Error_t::badMainSensor);
+    } else {
+      ui.clear(Error_t::badMainSensor);
     }
     ui.redraw = true;
   }
@@ -505,8 +566,11 @@ void loop()
   if (loopMillis > timeStartHeaterTReadout) {
     timeStartHeaterTReadout = ULONG_MAX;
     heaterT = thermoHeater.getTemp(addrHeater);
+    
     if (heaterT == DEVICE_DISCONNECTED_RAW) {
-      ui.error("bad heater sensor");
+      ui.error(Error_t::badHeaterSensor);
+    } else {
+      ui.clear(Error_t::badHeaterSensor);
     }
   }
 
@@ -517,21 +581,29 @@ void loop()
     timeStartRelayTReadout = millis() + thermoRelay.millisToWaitForConversion();
   }
 
-  static int8_t skipRelayCheck{0};
   //read teperatures from relay sensor
   if (loopMillis > timeStartRelayTReadout) {
     timeStartRelayTReadout = ULONG_MAX;
     relayT = thermoRelay.getTemp(addrRelay);
+    
     if (relayT == DEVICE_DISCONNECTED_RAW) {
-      ui.error("bad relay sensor");
+      ui.error(Error_t::badRelaySensor);
+    } else {
+      ui.clear(Error_t::badRelaySensor);
     }
-
-    static uint8_t nWeirdValuesRelayT{0};
-    if (relayT > 19200) { nWeirdValuesRelayT++; skipRelayCheck = 1;}
-    else { skipRelayCheck = -1; }
-    if (nWeirdValuesRelayT>10) ui.error("relay T weird");
+    
+    if (relayT > param.maxRelayT) { 
+      ui.error(Error_t::relayOverheated);
+    } else {
+      ui.clear(Error_t::relayOverheated);
+    }
   }
 
+  //process temeratures
+  if (mainT > 19200) { nWeirdValuesMainT++;}
+  if (heaterT > 19200) { nWeirdValuesHeaterT++;}
+  if (relayT > 19200) { nWeirdValuesRelayT++;}
+  
   //control the actual regulated temperature
   if (slopeT>0) {
     //if we're on the rise, we flip sign when we cross higher threshhold
@@ -556,7 +628,7 @@ void loop()
   heaterIsOn = (((param.heatingMode * slopeT) > 0) && ((param.heatingMode * slopeH) > 0)) ? 1 : -1;
 
   //no need to access the hardware on every iteration, do it only when something changes
-  if ((heaterIsOn != heaterWasOn) && (running > 0)) {
+  if (((heaterIsOn != heaterWasOn) || (errors != waserrors)) && (errors == 0)) {
 
 #ifdef DEBUG
     DEBUGPRINT("heater handler");
@@ -567,19 +639,12 @@ void loop()
     ui.tick();
   }
 
-  // this is a safety feature
-  if (relayT > param.maxRelayT && skipRelayCheck < 0) {
-    running = -1;
-  } else {
-    running = 1;
-  }
-
   //handle the connecting/disconnecting of the main relay based on the running condition
   //this essentially handles error conditions, so it is OK to use delay here
-  if (running != wasrunning) {
-    wasrunning = running;
+  if (errors != waserrors ) {
+    waserrors = errors;
     ui.tick();
-    if (running<0) {
+    if (errors!=0) {
       //we switch off the relays in sequence
       digitalWriteFast(relaySSRpin, LOW);
       delay(20); //with 50Hz it takes up to 10ms to switch off (at next zero crossing);
