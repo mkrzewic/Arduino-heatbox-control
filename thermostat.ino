@@ -600,9 +600,9 @@ void loop()
   }
 
   //process temeratures
-  if (mainT > 19200) { nWeirdValuesMainT++;}
-  if (heaterT > 19200) { nWeirdValuesHeaterT++;}
-  if (relayT > 19200) { nWeirdValuesRelayT++;}
+  if (mainT > 16000 || mainT < -7040) { nWeirdValuesMainT++;}
+  if (heaterT > 16000 || heaterT < -7040) { nWeirdValuesHeaterT++;}
+  if (relayT > 16000 || relayT < -7040) { nWeirdValuesRelayT++;}
   
   //control the actual regulated temperature
   if (slopeT>0) {
