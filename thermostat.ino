@@ -82,9 +82,9 @@ int16_t heaterT = {0};
 int16_t relayT = {0};
 int8_t slopeT = {-1};
 int8_t slopeH = {-1};
-uint8_t errors = {1}; //start in the off state
-int8_t waserrors = {0};
-int8_t heaterIsOn{0}, heaterWasOn{0};
+uint8_t errors = {0}; //start in the on state
+int8_t waserrors = {1};
+int8_t heaterIsOn{0}, heaterWasOn{1};
 bool saveSettings{false};
 uint8_t devCountMain{0};
 uint8_t devCountHeater{0};
@@ -140,7 +140,7 @@ struct UI_t {
   unsigned long jumpBackNow{0}; 
   State_t state{State_t::overview};
   State_t lastState{State_t::man};
-  bool redraw{true};
+  bool redraw{false};
   const char* errorMsg;
 
   void changeState(State_t newState){
