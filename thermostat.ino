@@ -1,5 +1,5 @@
 #include <Adafruit_SSD1306.h>
-#include <RotaryEncoder.h>
+#include <RotaryEncoder.h>  //version 1.5.0 has a weird bug!
 #include <digitalWriteFast.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -226,7 +226,7 @@ struct UI_t {
           printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
           lcd.println();
           lcd.setCursor(0,24);
-          if (heaterIsOn > 0) { for (uint8_t i=0; i<21; ++i) lcd.write(176); }
+          for (uint8_t i=0; i<21; ++i) { lcd.write(heaterIsOn > 0 ? 176 : 250); }
         }
         
         lcd.setCursor(0,40);
@@ -334,7 +334,9 @@ void SaveSettings() {
   eepromCRC = CRC32::calculate(&param, 1); //second arg is number of elements of decltype(first param)
   EEPROM.put(addressEEPROMcrc, eepromCRC);
   lcd.clearDisplay();
-  lcd.print("saved");
+  lcd.setTextSize(largeTextSize);
+  lcd.print(F("saved"));
+  lcd.display();
   delay(1000);
 }
 
@@ -541,7 +543,7 @@ void loop()
   //start conversion period for main
   if (loopMillis > timeStartMainTConversion) {
     thermoMain.requestTemperatures();
-    timeStartMainTConversion = millis() + thermoMainSamplingPeriod;
+    timeStartMainTConversion = millis() + thermoMainSamplingPeriod + thermoMain.millisToWaitForConversion();
     timeStartMainTReadout = millis() + thermoMain.millisToWaitForConversion();
   }
 
