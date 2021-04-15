@@ -131,7 +131,7 @@ void DEBUGPRINT(const char* header = nullptr) {
 
 enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, man,
   setHeatingMode, setTargetDeltaT, setTemperatureStep,
-  saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
+  saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT };
 
 enum class Error_t: int {badMainSensor, badHeaterSensor, badRelaySensor, relayOverheated};
 const char* errorString[] = {"relay overheated", "main sensor", "heater sensor", "relay sensor"};
@@ -141,7 +141,7 @@ struct UI_t {
   State_t state{State_t::overview};
   State_t lastState{State_t::man};
   bool redraw{false};
-  const char* errorMsg;
+  const char* errorMsg{nullptr};
 
   void changeState(State_t newState){
     lastState = state;
@@ -159,6 +159,7 @@ struct UI_t {
  
   void clear(Error_t error) {
     BIT_CLEAR(errors, static_cast<int>(error));
+    errorMsg = nullptr;
     redraw = true;
   }
 
@@ -335,7 +336,8 @@ void SaveSettings() {
   EEPROM.put(addressEEPROMcrc, eepromCRC);
   lcd.clearDisplay();
   lcd.setTextSize(largeTextSize);
-  lcd.print(F("saved"));
+  lcd.setCursor(15,20);
+  lcd.print("saved");
   lcd.display();
   delay(1000);
 }
