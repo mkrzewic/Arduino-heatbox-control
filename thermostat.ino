@@ -283,7 +283,7 @@ struct UI_t {
         lcd.print(digitalReadFast(relaySSRpin));
         lcd.print(F(" Click: "));
         lcd.println(!digitalReadFast(relayClickPin));
-        lcd.print("errors: ");
+        lcd.print("error bits: ");
         lcd.println(errors,BIN);
         break;
       case State_t::saveSettings:
@@ -396,8 +396,10 @@ void setup()
   }
 
   lcd.clearDisplay();
-  lcd.print(F("       MKr"));
+  lcd.setCursor(36,28);
+  lcd.print(F("MKr")); lcd.write(' '); lcd.print(F("2021"));
   lcd.display();
+  delay(1000);
 
   pinMode(encoderButtonPin, INPUT_PULLUP);
 
