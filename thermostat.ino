@@ -22,7 +22,7 @@ constexpr uint8_t relaySSRpin = 13;
 constexpr uint8_t relayClickPin = A0;
 
 constexpr unsigned long ULONG_MAX{0xffffffff};
-constexpr unsigned long thermoMainSamplingPeriod = 2000; //ms
+constexpr unsigned long thermoMainSamplingPeriod = 1000; //ms
 constexpr unsigned long thermoHeaterSamplingPeriod = 500; //ms
 constexpr unsigned long thermoRelaySamplingPeriod = 500; //ms
 constexpr uint8_t iResolutionHeaterT = 2;
@@ -77,9 +77,9 @@ Param_t param{};
 
 int16_t heaterMaxT{0};
 int16_t heaterMinT(0);
-int16_t mainT = {0};
-int16_t heaterT = {0};
-int16_t relayT = {0};
+int16_t mainT = {DEVICE_DISCONNECTED_RAW};
+int16_t heaterT = {DEVICE_DISCONNECTED_RAW};
+int16_t relayT = {DEVICE_DISCONNECTED_RAW};
 int8_t slopeT = {-1};
 int8_t slopeH = {-1};
 uint8_t errors = {0}; //start in the on state
@@ -133,7 +133,7 @@ enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, man,
   setHeatingMode, setTargetDeltaT, setTemperatureStep,
   saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT};
 
-enum class Error_t: int {relayOverheated, badMainSensor, badHeaterSensor, badRelaySensor};
+enum class Error_t: int {badMainSensor, badHeaterSensor, badRelaySensor, relayOverheated};
 const char* errorString[] = {"relay overheated", "main sensor", "heater sensor", "relay sensor"};
 
 struct UI_t {
@@ -185,7 +185,11 @@ struct UI_t {
 
   template<typename U>
     void printDallasTempC(int32_t const raw, U& out, uint8_t const places) {
-      printAsFloat(int32_t(raw), int32_t(128), out, places, DEC);
+      if (raw == DEVICE_DISCONNECTED_RAW) {
+        out.write('?');
+      } else {
+        printAsFloat(int32_t(raw), int32_t(128), out, places, DEC);
+      }
       out.setTextSize(1);
       out.write(248);
       out.write('C');
@@ -264,27 +268,23 @@ struct UI_t {
         printDallasTempC(mainT, lcd, displayPrecision[iResolutionHeaterT]);
         lcd.println();
         param.heatingMode > 0 ? lcd.print(F("heater: ")) : lcd.print(F("cooler: "));;
-        if (devCountHeater==0) {
-          lcd.print("?");
-        } else {
-          printDallasTempC(heaterT, lcd, displayPrecision[iResolutionHeaterT]);
-        }
+        printDallasTempC(heaterT, lcd, displayPrecision[iResolutionHeaterT]);
         lcd.println();
         lcd.print(F("relay: "));
         printDallasTempC(relayT, lcd, displayPrecision[iResolutionRelayT]);
         lcd.println();
-        lcd.print(F("weird values: "));
+        lcd.print(F("weird: "));
         lcd.print(nWeirdValuesMainT);
         lcd.write(' ');
         lcd.print(nWeirdValuesHeaterT);
         lcd.write(' ');
         lcd.println(nWeirdValuesRelayT);
         lcd.print(F("SSR: "));
-        lcd.println(digitalReadFast(relaySSRpin));
-        lcd.print(F("Click: "));
+        lcd.print(digitalReadFast(relaySSRpin));
+        lcd.print(F(" Click: "));
         lcd.println(!digitalReadFast(relayClickPin));
         lcd.print("errors: ");
-        lcd.println(errors,HEX);
+        lcd.println(errors,BIN);
         break;
       case State_t::saveSettings:
         lcd.println(F("Save as defaults"));
@@ -353,13 +353,16 @@ void initSensors() {
   thermoMain.begin();
   thermoHeater.begin();
   thermoRelay.begin();
+  thermoMain.setWaitForConversion(false);
+  thermoHeater.setWaitForConversion(false);
+  thermoRelay.setWaitForConversion(false);
   devCountMain = thermoMain.getDeviceCount();
   devCountHeater = thermoHeater.getDeviceCount();
   devCountRelay = thermoRelay.getDeviceCount();
   if (devCountMain==0) {ui.error(Error_t::badMainSensor);}
   if (devCountRelay==0) {ui.error(Error_t::badRelaySensor);}
   if (!thermoMain.getAddress(addrMain,0)) {ui.error(Error_t::badMainSensor);}
-  if (!thermoHeater.getAddress(addrHeater,0)) {}
+  if (!thermoHeater.getAddress(addrHeater,0) && devCountHeater>0) {ui.error(Error_t::badHeaterSensor);}
   if (!thermoRelay.getAddress(addrRelay,0)) {ui.error(Error_t::badRelaySensor);}
   thermoMain.setResolution(tempSensorResolution[param.iStepT]);
   thermoHeater.setResolution(tempSensorResolution[iResolutionHeaterT]);
