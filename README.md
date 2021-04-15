@@ -8,4 +8,3 @@ All that is meant to increase the confidence in leaving the system running unatt
 
 The code runs on an Arduino pro mini, and should therefore run without problems on any atmega328p based arduino without changes.
 
-In case something does not compile: my forks of the RotaryEncoder and DallasTemperature libraries should be used...
