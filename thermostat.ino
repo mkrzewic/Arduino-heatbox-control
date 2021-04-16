@@ -57,10 +57,10 @@ volatile unsigned long bounceTimer{0};
 uint8_t modeButton[2] = {1};
 int8_t knobPosition[2] = {0,1};
 
-constexpr uint8_t nResolutionsT = 3;
-constexpr uint8_t stepT[nResolutionsT] =                    {16, 32, 64};
-constexpr uint8_t tempSensorResolution[nResolutionsT] =     {11,    10,     9};
-constexpr uint8_t displayPrecision[nResolutionsT] =         {3,     2,      1};
+constexpr uint8_t nResolutionsT = 4;
+constexpr uint8_t stepT[nResolutionsT] =                    {16, 32, 64, 128};
+constexpr uint8_t tempSensorResolution[nResolutionsT] =     {11,    10,     9,  9};
+constexpr uint8_t displayPrecision[nResolutionsT] =         {3,     2,      1,  0};
 
 //settable parameters
 struct Param_t {
@@ -176,6 +176,7 @@ struct UI_t {
   template<typename T, typename U, typename V, typename W, typename X>
     void printAsFloat(T const x, X const valPerUnit, U& out, W const places, V base) {
       out.print(x / valPerUnit, base);
+      if (places <= 0) return;
       out.write('.');
       // TODO: here be dragons
       auto nb = out.print(abs(int32_t(x % valPerUnit)*intpow<int16_t>(base,places)/valPerUnit), base);
@@ -222,7 +223,7 @@ struct UI_t {
             lcd.println(F("Cool"));
           }
           lcd.print(F("to"));
-          lcd.setCursor(32,0);
+          lcd.setCursor(30,0);
           lcd.setTextSize(2*smallTextSize);
           printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
           lcd.println();
@@ -236,43 +237,45 @@ struct UI_t {
         break;
       case State_t::setTargetT:
         lcd.println(F("Set temperature"));
-        lcd.println();
+        lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setLimitHeaterT:
         param.heatingMode>0 ? lcd.println(F("Max heater T")) : lcd.println(F("Min cooler T"));
-        lcd.println();
+        lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
-        printDallasTempC(param.limitHeaterT, lcd, displayPrecision[iResolutionHeaterT]);
+        printDallasTempC(param.limitHeaterT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setHeatingMode:
         lcd.println(F("Set cool <> heat"));
-        lcd.println();
+        lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         lcd.print(param.heatingMode<0?F("cool"):F("heat"));
         break;
       case State_t::setTargetDeltaT:
         lcd.println(F("T variation"));
-        lcd.println();
+        lcd.println(F("(hysteresis)"));
+        lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.hysteresisT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setTemperatureStep:
-        lcd.println(F("T precision"));
-        lcd.println();
+        lcd.println(F("T measurement"));
+        lcd.println(F("resolution"));
+        lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(stepT[param.iStepT], lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::showTemperatures:
         lcd.print(F("main: "));
-        printDallasTempC(mainT, lcd, displayPrecision[iResolutionHeaterT]);
+        printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
         lcd.println();
         param.heatingMode > 0 ? lcd.print(F("heater: ")) : lcd.print(F("cooler: "));;
-        printDallasTempC(heaterT, lcd, displayPrecision[iResolutionHeaterT]);
+        printDallasTempC(heaterT, lcd, displayPrecision[param.iStepT]);
         lcd.println();
         lcd.print(F("relay: "));
-        printDallasTempC(relayT, lcd, displayPrecision[iResolutionRelayT]);
+        printDallasTempC(relayT, lcd, displayPrecision[param.iStepT]);
         lcd.println();
         lcd.print(F("weird: "));
         lcd.print(nWeirdValuesMainT);
@@ -300,13 +303,13 @@ struct UI_t {
         break;
       case State_t::setLimitRelayT:
         lcd.println(F("Max relay T"));
-        lcd.println();
+        lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
-        printDallasTempC(param.maxRelayT, lcd, displayPrecision[iResolutionRelayT]);
+        printDallasTempC(param.maxRelayT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setMaxTargetT:
         param.heatingMode>0 ? lcd.println(F("Max settable T")) : lcd.println(F("Min settable T"));
-        lcd.println();
+        lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.maxTargetT, lcd, displayPrecision[param.iStepT]);
         break;
@@ -479,6 +482,8 @@ void loop()
       case State_t::showTemperatures:
         ui.changeState(State_t::man);
         break;
+      case State_t::man:
+        
       default:
         break;
     }
@@ -535,6 +540,7 @@ void loop()
           ui.changeState(State_t::setTargetT);
           break;
         case State_t::showTemperatures:
+          ui.changeState(State_t::setTargetT);
           break;
         default:
           break;
