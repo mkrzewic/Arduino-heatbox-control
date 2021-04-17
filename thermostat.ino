@@ -285,12 +285,14 @@ struct UI_t {
         lcd.println();
         lcd.print(F("error bits: "));
         lcd.println(errors,BIN);
-        lcd.print(F("nerr: "));
+        lcd.print(F("#err: "));
         lcd.print(nWeirdValuesMainT);
         lcd.write(' ');
         lcd.print(nWeirdValuesHeaterT);
         lcd.write(' ');
         lcd.println(nWeirdValuesRelayT);
+        lcd.print(F("#overheat: "));
+        lcd.print(nRelayOverheatEvents);
         break;
       case State_t::saveSettings:
         lcd.println(F("Save as defaults"));
@@ -612,6 +614,7 @@ void loop()
     
     if (relayT > param.maxRelayT) { 
       ui.error(Error_t::relayOverheated);
+      nRelayOverheatEvents++;
     } else {
       ui.clear(Error_t::relayOverheated);
     }
