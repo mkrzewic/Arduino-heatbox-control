@@ -64,9 +64,9 @@ constexpr uint8_t displayPrecision[nResolutionsT] =         {3,     2,      1,  
 
 //settable parameters
 struct Param_t {
-  int16_t targetT{5120};
+  int16_t targetT{2560};
   int16_t limitHeaterT{8960};
-  int16_t hysteresisT{64};
+  int16_t hysteresisT{128};
   int8_t heatingMode{1}; //-1 or 1 for cooling/heating
   uint8_t iStepT{2};
   int16_t maxRelayT{12672};
@@ -158,10 +158,14 @@ struct UI_t {
     redraw = true;
   }
  
-  void clear(Error_t error) {
+  void error_clear(Error_t error) {
     BIT_CLEAR(errors, static_cast<int>(error));
     //errorMsg = nullptr;
     redraw = true;
+  }
+
+  bool error_check(Error_t error) {
+    return BIT_READ(errors, static_cast<int>(error));    
   }
 
   template<typename T>
@@ -568,7 +572,7 @@ void loop()
     if (mainT == DEVICE_DISCONNECTED_RAW) {
       ui.error(Error_t::badMainSensor);
     } else {
-      ui.clear(Error_t::badMainSensor);
+      ui.error_clear(Error_t::badMainSensor);
     }
     if (mainT >= 16000 || mainT <= -7040) { nWeirdValuesMainT++;}
     ui.redraw = true;
@@ -589,7 +593,7 @@ void loop()
     if (heaterT == DEVICE_DISCONNECTED_RAW) {
       ui.error(Error_t::badHeaterSensor);
     } else {
-      ui.clear(Error_t::badHeaterSensor);
+      ui.error_clear(Error_t::badHeaterSensor);
     }
     if (heaterT >= 16000 || heaterT <= -7040) { nWeirdValuesHeaterT++;}    
   }
@@ -609,14 +613,15 @@ void loop()
     if (relayT == DEVICE_DISCONNECTED_RAW) {
       ui.error(Error_t::badRelaySensor);
     } else {
-      ui.clear(Error_t::badRelaySensor);
+      ui.error_clear(Error_t::badRelaySensor);
     }
     
-    if (relayT > param.maxRelayT) { 
+    if (!ui.error_check(Error_t::relayOverheated) && (relayT > param.maxRelayT)) { 
       ui.error(Error_t::relayOverheated);
       nRelayOverheatEvents++;
-    } else {
-      ui.clear(Error_t::relayOverheated);
+    }
+    if (ui.error_check(Error_t::relayOverheated) && (relayT < (param.maxRelayT - param.hysteresisT))) {
+      ui.error_clear(Error_t::relayOverheated);
     }
 
     if (relayT >= 16000 || relayT <= -7040) { nWeirdValuesRelayT++;}
