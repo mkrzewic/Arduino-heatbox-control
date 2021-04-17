@@ -135,7 +135,7 @@ enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, man,
   saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT };
 
 enum class Error_t: int {badMainSensor, badHeaterSensor, badRelaySensor, relayOverheated};
-const char* errorString[] = {"relay overheated", "main sensor", "heater sensor", "relay sensor"};
+const char* errorString[] = {"main sensor", "heater sensor", "relay sensor", "relay overheated"};
 
 struct UI_t {
   unsigned long jumpBackNow{0}; 
@@ -160,7 +160,7 @@ struct UI_t {
  
   void clear(Error_t error) {
     BIT_CLEAR(errors, static_cast<int>(error));
-    errorMsg = nullptr;
+    //errorMsg = nullptr;
     redraw = true;
   }
 
