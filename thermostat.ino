@@ -132,14 +132,14 @@ void DEBUGPRINT(const char* header = nullptr) {
 
 enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, man,
   setHeatingMode, setTargetDeltaT, setTemperatureStep,
-  saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT };
+  saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT, idle };
 
-enum class Error_t: int {badMainSensor, badHeaterSensor, badRelaySensor, relayOverheated};
-const char* errorString[] = {"main sensor", "heater sensor", "relay sensor", "relay overheated"};
+enum class Error_t: int {badMainSensor, badHeaterSensor, badRelaySensor, relayOverheated, unexpectedDeltaT};
+const char* errorString[] = {"main sensor", "heater sensor", "relay sensor", "relay overheated", "dT wrong sign"};
 
 struct UI_t {
   unsigned long jumpBackNow{0}; 
-  State_t state{State_t::overview};
+  State_t state{State_t::idle};
   State_t lastState{State_t::man};
   bool redraw{false};
   const char* errorMsg{nullptr};
@@ -205,13 +205,14 @@ struct UI_t {
   void update() {
     if (!redraw) return;
     redraw = false;
-    lcd.clearDisplay();
-    lcd.setTextSize(smallTextSize);
     lcd.setTextColor(SSD1306_WHITE);
-    if (lastState!=state) { lastState = state; }
     lcd.setCursor(0,0);
+    if (lastState!=state) { lastState = state; }
     switch(state) {
+      case State_t::idle:
+        break;
       case State_t::overview:
+        lcd.clearDisplay();
         if (errors != 0) {
           lcd.setTextSize(largeTextSize);
           lcd.println(F("error:"));
@@ -241,24 +242,29 @@ struct UI_t {
         printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setTargetT:
+        lcd.clearDisplay();
+        lcd.clearDisplay();
         lcd.println(F("Set temperature"));
         lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.targetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setLimitHeaterT:
+        lcd.clearDisplay();
         param.heatingMode>0 ? lcd.println(F("Max heater T")) : lcd.println(F("Min cooler T"));
         lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.limitHeaterT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setHeatingMode:
+        lcd.clearDisplay();
         lcd.println(F("Set cool <> heat"));
         lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         lcd.print(param.heatingMode<0?F("cool"):F("heat"));
         break;
       case State_t::setTargetDeltaT:
+        lcd.clearDisplay();
         lcd.println(F("T variation"));
         lcd.println(F("(hysteresis)"));
         lcd.setCursor(0,40);
@@ -266,6 +272,7 @@ struct UI_t {
         printDallasTempC(param.hysteresisT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setTemperatureStep:
+        lcd.clearDisplay();
         lcd.println(F("T measurement"));
         lcd.println(F("resolution"));
         lcd.setCursor(0,40);
@@ -273,6 +280,7 @@ struct UI_t {
         printDallasTempC(stepT[param.iStepT], lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::showTemperatures:
+        lcd.clearDisplay();
         lcd.print(F("main: "));
         printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
         lcd.println();
@@ -299,6 +307,7 @@ struct UI_t {
         lcd.print(nRelayOverheatEvents);
         break;
       case State_t::saveSettings:
+        lcd.clearDisplay();
         lcd.println(F("Save as defaults"));
         lcd.println();
         lcd.setTextSize(largeTextSize);
@@ -310,18 +319,21 @@ struct UI_t {
         }
         break;
       case State_t::setLimitRelayT:
+        lcd.clearDisplay();
         lcd.println(F("Max relay T"));
         lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.maxRelayT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::setMaxTargetT:
+        lcd.clearDisplay();
         param.heatingMode>0 ? lcd.println(F("Max settable T")) : lcd.println(F("Min settable T"));
         lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.maxTargetT, lcd, displayPrecision[param.iStepT]);
         break;
       case State_t::man:
+        lcd.clearDisplay();
         lcd.setTextSize(2);
         lcd.println(F("Press to"));
         lcd.println(F("change"));
@@ -406,7 +418,7 @@ void setup()
     lcd.println(F("  EEPROM error"));
     lcd.print(F("fallback default"));
     lcd.display();
-    delay(1000);
+    ui.jumpBackNow = millis()+1000;
     SaveSettings();  //maybe a new board or something went wrong, store defaults
   }
 
@@ -414,7 +426,7 @@ void setup()
   lcd.setCursor(36,28);
   lcd.print(F("MKr")); lcd.write(' '); lcd.print(F("2021"));
   lcd.display();
-  delay(1000);
+  ui.jumpBackNow = millis()+1000;
 
   pinMode(encoderButtonPin, INPUT_PULLUP);
 
