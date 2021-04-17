@@ -90,9 +90,10 @@ uint8_t devCountMain{0};
 uint8_t devCountHeater{0};
 uint8_t devCountRelay{0};
 uint32_t eepromCRC{0};
-uint8_t nWeirdValuesRelayT{0};
-uint8_t nWeirdValuesMainT{0};
-uint8_t nWeirdValuesHeaterT{0};
+uint16_t nWeirdValuesRelayT{0};
+uint16_t nWeirdValuesMainT{0};
+uint16_t nWeirdValuesHeaterT{0};
+uint16_t nRelayOverheatEvents{0};
 
 //TODO: using size_t here does not work - why?
 constexpr uint32_t addressEEPROMcrc = {0};
@@ -277,18 +278,19 @@ struct UI_t {
         lcd.print(F("relay: "));
         printDallasTempC(relayT, lcd, displayPrecision[param.iStepT]);
         lcd.println();
-        lcd.print(F("weird: "));
+        lcd.print(F("SSR: "));
+        lcd.print(digitalReadFast(relaySSRpin));
+        lcd.print(F(" Click: "));
+        lcd.println(!digitalReadFast(relayClickPin));
+        lcd.println();
+        lcd.print(F("error bits: "));
+        lcd.println(errors,BIN);
+        lcd.print(F("nerr: "));
         lcd.print(nWeirdValuesMainT);
         lcd.write(' ');
         lcd.print(nWeirdValuesHeaterT);
         lcd.write(' ');
         lcd.println(nWeirdValuesRelayT);
-        lcd.print(F("SSR: "));
-        lcd.print(digitalReadFast(relaySSRpin));
-        lcd.print(F(" Click: "));
-        lcd.println(!digitalReadFast(relayClickPin));
-        lcd.print("error bits: ");
-        lcd.println(errors,BIN);
         break;
       case State_t::saveSettings:
         lcd.println(F("Save as defaults"));
@@ -298,7 +300,7 @@ struct UI_t {
           lcd.println(F("press"));
           lcd.print(F("to save"));
         } else {
-          lcd.print(F("no           "));
+          lcd.print(F("no"));
         }
         break;
       case State_t::setLimitRelayT:
@@ -445,6 +447,7 @@ void loop()
           ui.changeState(State_t::man);
         } else if ( dir < 0 ) {
           ui.changeState(State_t::showTemperatures);
+          ui.jumpBackNow = loopMillis + 7000;
         }
         break;
       case State_t::setTargetT:
@@ -565,16 +568,15 @@ void loop()
     } else {
       ui.clear(Error_t::badMainSensor);
     }
+    if (mainT >= 16000 || mainT <= -7040) { nWeirdValuesMainT++;}
     ui.redraw = true;
   }
 
   //start conversion period for heater only if it is there
-  if (loopMillis > timeStartHeaterTConversion && devCountHeater>0) {
-    if (devCountHeater > 0) {
-      thermoHeater.requestTemperatures();
-      timeStartHeaterTConversion = millis() + thermoHeaterSamplingPeriod;
-      timeStartHeaterTReadout = millis() + thermoHeater.millisToWaitForConversion();
-    }
+  if (devCountHeater > 0 &&  loopMillis > timeStartHeaterTConversion) {
+    thermoHeater.requestTemperatures();
+    timeStartHeaterTConversion = millis() + thermoHeaterSamplingPeriod;
+    timeStartHeaterTReadout = millis() + thermoHeater.millisToWaitForConversion();
   }
 
   //read teperatures from heater sensor
@@ -587,6 +589,7 @@ void loop()
     } else {
       ui.clear(Error_t::badHeaterSensor);
     }
+    if (heaterT >= 16000 || heaterT <= -7040) { nWeirdValuesHeaterT++;}    
   }
 
   //start conversion period for relay
@@ -612,12 +615,9 @@ void loop()
     } else {
       ui.clear(Error_t::relayOverheated);
     }
-  }
 
-  //process temeratures
-  if (mainT > 16000 || mainT < -7040) { nWeirdValuesMainT++;}
-  if (heaterT > 16000 || heaterT < -7040) { nWeirdValuesHeaterT++;}
-  if (relayT > 16000 || relayT < -7040) { nWeirdValuesRelayT++;}
+    if (relayT >= 16000 || relayT <= -7040) { nWeirdValuesRelayT++;}
+  }
   
   //control the actual regulated temperature
   if (slopeT>0) {
