@@ -55,7 +55,7 @@ RotaryEncoder encoder(encoderPin1, encoderPin2);
 
 volatile unsigned long bounceTimer{0};
 uint8_t modeButton[2] = {1};
-int8_t knobPosition[2] = {0,1};
+int8_t knobPosition[2] = {0,0};
 
 constexpr uint8_t nResolutionsT = 4;
 constexpr uint8_t stepT[nResolutionsT] =                    {16, 32, 64, 128};
@@ -140,12 +140,10 @@ const char* errorString[] = {"main sensor", "heater sensor", "relay sensor", "re
 struct UI_t {
   unsigned long jumpBackNow{0}; 
   State_t state{State_t::idle};
-  State_t lastState{State_t::man};
   bool redraw{false};
   const char* errorMsg{nullptr};
 
   void changeState(State_t newState){
-    lastState = state;
     state = newState;
     tick();
   }
@@ -160,7 +158,6 @@ struct UI_t {
  
   void error_clear(Error_t error) {
     BIT_CLEAR(errors, static_cast<int>(error));
-    //errorMsg = nullptr;
     redraw = true;
   }
 
@@ -206,8 +203,8 @@ struct UI_t {
     if (!redraw) return;
     redraw = false;
     lcd.setTextColor(SSD1306_WHITE);
+    lcd.setTextSize(smallTextSize);
     lcd.setCursor(0,0);
-    if (lastState!=state) { lastState = state; }
     switch(state) {
       case State_t::idle:
         break;
@@ -357,12 +354,6 @@ void SaveSettings() {
   EEPROM.put(addressEEPROMSettings, param);
   eepromCRC = CRC32::calculate(&param, 1); //second arg is number of elements of decltype(first param)
   EEPROM.put(addressEEPROMcrc, eepromCRC);
-  lcd.clearDisplay();
-  lcd.setTextSize(largeTextSize);
-  lcd.setCursor(15,20);
-  lcd.print("saved");
-  lcd.display();
-  delay(1000);
 }
 
 bool RestoreSettings() {
@@ -554,8 +545,18 @@ void loop()
           ui.changeState(State_t::saveSettings);
           break;
         case State_t::saveSettings:
-          if (saveSettings) { SaveSettings(); }
-          ui.changeState(State_t::overview);
+          if (saveSettings) {
+            SaveSettings();
+            lcd.clearDisplay();
+            lcd.setTextSize(largeTextSize);
+            lcd.setCursor(15, 20);
+            lcd.print("saved");
+            lcd.display();
+            ui.changeState(State_t::idle);
+            ui.jumpBackNow = loopMillis + 1000;
+          } else {
+            ui.changeState(State_t::overview);
+          }
           break;
         case State_t::man:
           ui.changeState(State_t::setTargetT);
@@ -671,14 +672,14 @@ void loop()
 
     digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
     heaterWasOn = heaterIsOn;
-    ui.tick();
+    ui.redraw = true;
   }
 
   //handle the connecting/disconnecting of the main relay based on the running condition
   //this essentially handles error conditions, so it is OK to use delay here
   if (errors != waserrors ) {
     waserrors = errors;
-    ui.tick();
+    ui.redraw = true;
     if (errors!=0) {
       //we switch off the relays in sequence
       digitalWriteFast(relaySSRpin, LOW);
