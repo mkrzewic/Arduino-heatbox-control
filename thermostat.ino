@@ -1,7 +1,6 @@
 #include <Adafruit_SSD1306.h>
 #include <RotaryEncoder.h>  //version 1.5.0 has a weird bug!
 #include <digitalWriteFast.h>
-#include <OneWire.h>
 #include <DallasTemperature.h>
 #undef REQUIRESALARMS
 #include <EEPROM.h>
@@ -74,6 +73,7 @@ struct Param_t {
 };
 
 Param_t param{};
+Param_t param_tmp;
 
 int16_t heaterMaxT{0};
 int16_t heaterMinT(0);
@@ -357,11 +357,10 @@ void SaveSettings() {
 }
 
 bool RestoreSettings() {
-  Param_t tmp;
-  EEPROM.get(addressEEPROMSettings, tmp);
+  EEPROM.get(addressEEPROMSettings, param_tmp);
   EEPROM.get(addressEEPROMcrc, eepromCRC);
-  if (CRC32::calculate(&tmp,1) == eepromCRC) {
-    param = tmp;
+  if (CRC32::calculate(&param_tmp,1) == eepromCRC) {
+    param = param_tmp;
     return true;
   }
   return false;
@@ -403,6 +402,7 @@ void setup()
   lcd.setTextColor(SSD1306_WHITE);
   lcd.cp437(true);
   lcd.dim(true);
+  //lcd.setRotation(0);
   
   if (!RestoreSettings()) {
     lcd.clearDisplay();
