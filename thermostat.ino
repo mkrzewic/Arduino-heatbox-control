@@ -77,9 +77,10 @@ Param_t param_tmp;
 
 int16_t heaterMaxT{0};
 int16_t heaterMinT(0);
-int16_t mainT = {DEVICE_DISCONNECTED_RAW};
-int16_t heaterT = {DEVICE_DISCONNECTED_RAW};
-int16_t relayT = {DEVICE_DISCONNECTED_RAW};
+int16_t mainT{DEVICE_DISCONNECTED_RAW};
+int16_t heaterT{DEVICE_DISCONNECTED_RAW};
+int16_t relayT{DEVICE_DISCONNECTED_RAW};
+int16_t cpuT{DEVICE_DISCONNECTED_RAW};
 int8_t slopeT = {-1};
 int8_t slopeH = {-1};
 uint8_t errors = {0}; //start in the on state
@@ -129,6 +130,21 @@ void DEBUGPRINT(const char* header = nullptr) {
   Serial.println(param.targetT);
 }
 #endif
+
+void cpu_temp()
+{
+  // Read temperature sensor against 1.1V reference
+  ADMUX = _BV(REFS1) | _BV(REFS0) | _BV(MUX3);
+  //enable ADC
+  ADCSRA |= _BV(ADEN);  // enable the ADC
+  // Start AD conversion
+  ADCSRA |= _BV(ADSC);  // Start the ADC
+  // Detect end-of-conversion
+  while (bit_is_set(ADCSRA,ADSC));
+  // return raw data
+  cpuT = ADCW - 286;
+  cpuT *= 105;
+}
 
 enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, man,
   setHeatingMode, setTargetDeltaT, setTemperatureStep,
@@ -287,11 +303,13 @@ struct UI_t {
         lcd.print(F("relay: "));
         printDallasTempC(relayT, lcd, displayPrecision[param.iStepT]);
         lcd.println();
+        lcd.print(F("cpu: "));
+        printDallasTempC(cpuT, lcd, 0);
+        lcd.println();
         lcd.print(F("SSR: "));
         lcd.print(digitalReadFast(relaySSRpin));
         lcd.print(F(" Click: "));
         lcd.println(!digitalReadFast(relayClickPin));
-        lcd.println();
         lcd.print(F("error bits: "));
         lcd.println(errors,BIN);
         lcd.print(F("#err: "));
@@ -589,6 +607,8 @@ void loop()
     }
     if (mainT >= 16000 || mainT <= -7040) { nWeirdValuesMainT++;}
     ui.redraw = true;
+
+    cpu_temp();
   }
 
   //start conversion period for heater only if it is there
