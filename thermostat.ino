@@ -461,6 +461,11 @@ void loop()
   loopMillis = millis();
 
   ui.update();
+  
+  if ((ui.jumpBackNow != 0) && (loopMillis > ui.jumpBackNow)) {
+    ui.changeState(State_t::overview);
+    ui.jumpBackNow = 0;
+  }
 
   //rotary encoder knob handling
   knobPosition[0] = encoder.getPosition();
@@ -517,18 +522,10 @@ void loop()
       default:
         break;
     }
-    int16_t limitHeaterOther{0};
-    limitHeaterOther = (param.targetT + param.limitHeaterT)/2;
-    heaterMaxT = max(limitHeaterOther, param.limitHeaterT);
-    heaterMinT = min(limitHeaterOther, param.limitHeaterT);
+
 #ifdef DEBUG
     DEBUGPRINT("knob handler");
 #endif
-  }
-
-  if ((ui.jumpBackNow != 0) && (loopMillis > ui.jumpBackNow)) {
-    ui.changeState(State_t::overview);
-    ui.jumpBackNow = 0;
   }
 
   //encoder button handling
@@ -668,6 +665,11 @@ void loop()
     //if we're on decline, we flip when crossing lower bound
     slopeT *= (mainT <= (param.targetT - param.hysteresisT)) ? -1 : 1;
   }
+
+  //TODO this does not need to be recalculated every time
+  static int16_t limitHeaterOther = (param.targetT + param.limitHeaterT)34/2;
+  heaterMaxT = max(limitHeaterOther, param.limitHeaterT);
+  heaterMinT = min(limitHeaterOther, param.limitHeaterT);
 
   //control the heater temperature
   if (devCountHeater == 0) {
