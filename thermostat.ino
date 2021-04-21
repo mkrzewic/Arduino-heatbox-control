@@ -667,9 +667,8 @@ void loop()
   }
 
   //TODO this does not need to be recalculated every time
-  static int16_t limitHeaterOther = (param.targetT + 4*param.limitHeaterT)/5;
-  heaterMaxT = max(limitHeaterOther, param.limitHeaterT);
-  heaterMinT = min(limitHeaterOther, param.limitHeaterT);
+  heaterMaxT = param.limitHeaterT + (param.heatingMode > 0) ? 0 : 2*param.hysteresisT;
+  heaterMinT = param.limitHeaterT - (param.heatingMode < 0) ? 0 : 2*param.hysteresisT;
 
   //control the heater temperature
   if (devCountHeater == 0) {
