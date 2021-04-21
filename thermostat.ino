@@ -667,7 +667,7 @@ void loop()
   }
 
   //TODO this does not need to be recalculated every time
-  static int16_t limitHeaterOther = (param.targetT + param.limitHeaterT)34/2;
+  static int16_t limitHeaterOther = (param.targetT + param.limitHeaterT)/2;
   heaterMaxT = max(limitHeaterOther, param.limitHeaterT);
   heaterMinT = min(limitHeaterOther, param.limitHeaterT);
 
