@@ -65,6 +65,7 @@ constexpr uint8_t displayPrecision[nResolutionsT] =         {3,     2,      1,  
 struct Param_t {
   int16_t targetT{2560};
   int16_t limitHeaterT{8960};
+  int16_t criticalHeaterDeltaT{1280}; //10degC above limit warrants measures
   int16_t hysteresisT{128};
   int8_t heatingMode{1}; //-1 or 1 for cooling/heating
   uint8_t iStepT{2};
@@ -146,12 +147,12 @@ void cpu_temp()
   cpuT *= 105;
 }
 
-enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, man,
+enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, setCriticalHeaterDeltaT, man,
   setHeatingMode, setTargetDeltaT, setTemperatureStep,
   saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT, idle };
 
-enum class Error_t: int {badMainSensor, badHeaterSensor, badRelaySensor, relayOverheated, unexpectedDeltaT};
-const char* errorString[] = {"main sensor", "heater sensor", "relay sensor", "relay overheated", "dT wrong sign"};
+enum class Error_t: int {badMainSensor, badHeaterSensor, badRelaySensor, relayOverheated, heaterOverheated};
+const char* errorString[] = {"main sensor", "heater sensor", "relay sensor", "relay overheated", "heater overheated"};
 
 struct UI_t {
   unsigned long jumpBackNow{0}; 
@@ -269,6 +270,14 @@ struct UI_t {
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.limitHeaterT, lcd, displayPrecision[param.iStepT]);
         break;
+      case State_t::setCriticalHeaterDeltaT:
+        lcd.clearDisplay();
+        param.heatingMode>0 ? lcd.println(F("Heater critical")) : lcd.println(F("Cooler critical"));
+        lcd.println(F("T overshoot"));
+        lcd.setCursor(0,40);
+        lcd.setTextSize(largeTextSize);
+        printDallasTempC(param.criticalHeaterDeltaT, lcd, displayPrecision[param.iStepT]);
+        break;
       case State_t::setHeatingMode:
         lcd.clearDisplay();
         lcd.println(F("Set cool <> heat"));
@@ -352,7 +361,7 @@ struct UI_t {
         lcd.setTextSize(2);
         lcd.println(F("Press to"));
         lcd.println(F("change"));
-        lcd.print(F("settings")); 
+        lcd.print(F("settings"));
         break;
     }
     lcd.display();
@@ -517,6 +526,9 @@ void loop()
       case State_t::showTemperatures:
         ui.changeState(State_t::man);
         break;
+      case State_t::setCriticalHeaterDeltaT:
+        param.criticalHeaterDeltaT += dir * stepT[param.iStepT];
+        if (param.criticalHeaterDeltaT <= 2*param.hysteresisT) param.criticalHeaterDeltaT = 2*param.hysteresisT;
       case State_t::man:
         
       default:
@@ -542,6 +554,9 @@ void loop()
           ui.changeState(State_t::setLimitHeaterT);
           break;
         case State_t::setLimitHeaterT:
+          ui.changeState(State_t::setCriticalHeaterDeltaT);
+          break;
+        case State_t::setCriticalHeaterDeltaT:
           ui.changeState(State_t::setTargetDeltaT);
           break;
         case State_t::setTargetDeltaT:
@@ -625,6 +640,11 @@ void loop()
     } else {
       ui.error_clear(Error_t::badHeaterSensor);
     }
+
+    if ( (param.heatingMode * heaterT) > param.heatingMode * (param.limitHeaterT + param.heatingMode * param.criticalHeaterDeltaT)) {
+      ui.error(Error_t::heaterOverheated);
+    } //we don't clear this one - it could mean the SSR friedup or became uncontrollable otherwise
+
     if (heaterT >= 16000 || heaterT <= -7040) { nWeirdValuesHeaterT++;}    
   }
 
