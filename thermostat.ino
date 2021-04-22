@@ -76,17 +76,26 @@ struct Param_t {
 Param_t param{};
 Param_t param_tmp;
 
+enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, setCriticalHeaterDeltaT, man,
+  setHeatingMode, setTargetDeltaT, setTemperatureStep,
+  saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT, idle };
+
+enum Error_t: int {badMainSensor=0, badHeaterSensor, badRelaySensor, relayOverheated, heaterOverheated};
+const char* errorString[] = {"main sensor", "heater sensor", "relay sensor", "relay overheated", "heater overheated"};
+
 int16_t heaterMaxT{0};
 int16_t heaterMinT(0);
+int16_t targetHeaterT{DEVICE_DISCONNECTED_RAW};
 int16_t mainT{DEVICE_DISCONNECTED_RAW};
 int16_t heaterT{DEVICE_DISCONNECTED_RAW};
 int16_t relayT{DEVICE_DISCONNECTED_RAW};
 int16_t cpuT{DEVICE_DISCONNECTED_RAW};
 int8_t slopeT = {-1};
 int8_t slopeH = {-1};
-uint8_t errors = {0}; //start in the on state
-int8_t waserrors = {1};
-int8_t heaterIsOn{0}, heaterWasOn{1};
+//start assuming sensors are bad, bits will be cleared after first measurements
+uint8_t errors = {0 | (1<<Error_t::badMainSensor) | (1<<Error_t::badHeaterSensor) | (1<<Error_t::badRelaySensor) };
+int8_t waserrors = {0};
+int8_t heaterIsOn{0}, heaterWasOn{0};
 bool saveSettings{false};
 uint8_t devCountMain{0};
 uint8_t devCountHeater{0};
@@ -146,13 +155,6 @@ void cpu_temp()
   cpuT = ADCW - 286;
   cpuT *= 105;
 }
-
-enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, setCriticalHeaterDeltaT, man,
-  setHeatingMode, setTargetDeltaT, setTemperatureStep,
-  saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT, idle };
-
-enum class Error_t: int {badMainSensor, badHeaterSensor, badRelaySensor, relayOverheated, heaterOverheated};
-const char* errorString[] = {"main sensor", "heater sensor", "relay sensor", "relay overheated", "heater overheated"};
 
 struct UI_t {
   unsigned long jumpBackNow{0}; 
@@ -273,6 +275,7 @@ struct UI_t {
       case State_t::setCriticalHeaterDeltaT:
         lcd.clearDisplay();
         param.heatingMode>0 ? lcd.println(F("Heater critical")) : lcd.println(F("Cooler critical"));
+        lcd.println(F("above set limit"));
         lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.criticalHeaterDeltaT, lcd, displayPrecision[param.iStepT]);
@@ -306,7 +309,8 @@ struct UI_t {
         printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
         lcd.println();
         param.heatingMode > 0 ? lcd.print(F("heater: ")) : lcd.print(F("cooler: "));;
-        printDallasTempC(heaterT, lcd, displayPrecision[param.iStepT]);
+        printDallasTempC(heaterT, lcd, 0); lcd.write(' ');
+        printDallasTempC(targetHeaterT, lcd, 0);
         lcd.println();
         lcd.print(F("relay: "));
         printDallasTempC(relayT, lcd, displayPrecision[param.iStepT]);
@@ -455,6 +459,7 @@ void setup()
 
   digitalWriteFast(relayClickPin,HIGH);
   pinMode(relayClickPin, OUTPUT);
+  digitalWriteFast(relaySSRpin,LOW);
   pinMode(relaySSRpin, OUTPUT);
 
 }
@@ -689,15 +694,14 @@ void loop()
 
   //some heuristics for heater temperature
   //when we cross the set point lower the heating output to not overshoot the upper hysteresis limit (too much)
-  static int16_t targetHeaterT{param.limitHeaterT};
-  if ((param.heatingMode*mainT) > (param.heatingMode*param.targetT)) {
+  if ((param.heatingMode * mainT) > (param.heatingMode * param.targetT)) {
     targetHeaterT = param.targetT + 2*param.heatingMode*param.hysteresisT;
   } else {
     targetHeaterT = param.limitHeaterT;
   }
-  if (param.heatingMode*targetHeaterT > param.limitHeaterT) {targetHeaterT = param.limitHeaterT;}
-  heaterMaxT = targetHeaterT + (param.heatingMode > 0) ? 0 : 2*param.hysteresisT;
-  heaterMinT = targetHeaterT - (param.heatingMode < 0) ? 0 : 2*param.hysteresisT;
+  if ((param.heatingMode*targetHeaterT) > (param.heatingMode*param.limitHeaterT)) {targetHeaterT = param.limitHeaterT;}
+  heaterMaxT = targetHeaterT + ((param.heatingMode > 0) ? 0 : 4*param.hysteresisT);
+  heaterMinT = targetHeaterT - ((param.heatingMode < 0) ? 0 : 4*param.hysteresisT);
 
   //control the heater temperature
   if (devCountHeater == 0) {
@@ -708,21 +712,6 @@ void loop()
   } else if (slopeH < 0) {
     //if we're on decline, we flip when crossing lower bound (or upper if we're cooling)
     slopeH *= (heaterT <= heaterMinT) ? -1 : 1;
-  }
-
-  //control main relay
-  heaterIsOn = (((param.heatingMode * slopeT) > 0) && ((param.heatingMode * slopeH) > 0)) ? 1 : -1;
-
-  //no need to access the hardware on every iteration, do it only when something changes
-  if (((heaterIsOn != heaterWasOn) || (errors != waserrors)) && (errors == 0)) {
-
-#ifdef DEBUG
-    DEBUGPRINT("heater handler");
-#endif
-
-    digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
-    heaterWasOn = heaterIsOn;
-    ui.redraw = true;
   }
 
   //handle the connecting/disconnecting of the main relay based on the running condition
@@ -740,6 +729,21 @@ void loop()
       digitalWriteFast(relayClickPin,LOW);
       delay(100);  //allow mechanical relay to switch and stabilize, probably around 50-70ms
     }
+  }
+  
+  //after error handling control main relay
+  heaterIsOn = (((param.heatingMode * slopeT) > 0) && ((param.heatingMode * slopeH) > 0)) ? 1 : -1;
+
+  //no need to access the hardware on every iteration, do it only when something changes
+  if ( (errors == 0) && ((heaterIsOn != heaterWasOn) || (errors != waserrors))) {
+
+#ifdef DEBUG
+    DEBUGPRINT("heater handler");
+#endif
+
+    digitalWriteFast(relaySSRpin, (heaterIsOn > 0) ? HIGH : LOW);
+    heaterWasOn = heaterIsOn;
+    ui.redraw = true;
   }
 
 #ifdef DEBUG
