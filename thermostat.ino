@@ -71,13 +71,14 @@ struct Param_t {
   uint8_t iStepT{2};
   int16_t maxRelayT{12672};
   int16_t maxTargetT{7680};
+  int16_t stableHeaterOffset{640};
 };
 
 Param_t param{};
 Param_t param_tmp;
 
 enum class State_t: uint8_t {overview, setTargetT, setLimitHeaterT, setCriticalHeaterDeltaT, man,
-  setHeatingMode, setTargetDeltaT, setTemperatureStep,
+  setHeatingMode, setTargetDeltaT, setTemperatureStep, setStableHeaterOffset,
   saveSettings, showTemperatures,  setMaxTargetT, setLimitRelayT, idle };
 
 enum Error_t: int {badMainSensor=0, badHeaterSensor, badRelaySensor, relayOverheated, heaterOverheated};
@@ -92,6 +93,7 @@ int16_t relayT{DEVICE_DISCONNECTED_RAW};
 int16_t cpuT{DEVICE_DISCONNECTED_RAW};
 int8_t slopeT = {-1};
 int8_t slopeH = {-1};
+int8_t stableMode{-1};
 //start assuming sensors are bad, bits will be cleared after first measurements
 uint8_t errors = {0 | (1<<Error_t::badMainSensor) | (1<<Error_t::badHeaterSensor) | (1<<Error_t::badRelaySensor) };
 int8_t waserrors = {0};
@@ -280,6 +282,14 @@ struct UI_t {
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.criticalHeaterDeltaT, lcd, displayPrecision[param.iStepT]);
         break;
+        case State_t::setStableHeaterOffset:
+        lcd.clearDisplay();
+        lcd.println(F("Stable T"));
+        lcd.println(F("heater offset"));
+        lcd.setCursor(0,40);
+        lcd.setTextSize(largeTextSize);
+        printDallasTempC(param.stableHeaterOffset, lcd, displayPrecision[param.iStepT]);
+        break;
       case State_t::setHeatingMode:
         lcd.clearDisplay();
         lcd.println(F("Set cool <> heat"));
@@ -308,9 +318,10 @@ struct UI_t {
         lcd.print(F("main: "));
         printDallasTempC(mainT, lcd, displayPrecision[param.iStepT]);
         lcd.println();
-        param.heatingMode > 0 ? lcd.print(F("heater: ")) : lcd.print(F("cooler: "));;
+        param.heatingMode > 0 ? lcd.print(F("H: ")) : lcd.print(F("C: "));;
         printDallasTempC(heaterT, lcd, 0); lcd.write(' ');
-        printDallasTempC(targetHeaterT, lcd, 0);
+        printDallasTempC(heaterMinT, lcd, 0); lcd.write(' ');
+        printDallasTempC(heaterMaxT, lcd, 0);
         lcd.println();
         lcd.print(F("relay: "));
         printDallasTempC(relayT, lcd, displayPrecision[param.iStepT]);
@@ -533,6 +544,11 @@ void loop()
       case State_t::setCriticalHeaterDeltaT:
         param.criticalHeaterDeltaT += dir * stepT[param.iStepT];
         if (param.criticalHeaterDeltaT <= 2*param.hysteresisT) param.criticalHeaterDeltaT = 2*param.hysteresisT;
+        break;
+      case State_t::setStableHeaterOffset:
+        param.stableHeaterOffset += dir * stepT[param.iStepT];
+        if (param.stableHeaterOffset < 0 ) {param.stableHeaterOffset = 0;}
+        break;
       case State_t::man:
         break;
       case State_t::idle:
@@ -560,6 +576,9 @@ void loop()
           ui.changeState(State_t::setLimitHeaterT);
           break;
         case State_t::setLimitHeaterT:
+          ui.changeState(State_t::setStableHeaterOffset);
+          break;
+        case State_t::setStableHeaterOffset:
           ui.changeState(State_t::setCriticalHeaterDeltaT);
           break;
         case State_t::setCriticalHeaterDeltaT:
@@ -647,7 +666,8 @@ void loop()
       ui.error_clear(Error_t::badHeaterSensor);
     }
 
-    if ( (param.heatingMode * heaterT) > param.heatingMode * (param.limitHeaterT + param.heatingMode * param.criticalHeaterDeltaT)) {
+    if ( (heaterT != DEVICE_DISCONNECTED_RAW ) && 
+    ((param.heatingMode * heaterT) > param.heatingMode * (param.limitHeaterT + param.heatingMode * param.criticalHeaterDeltaT))) {
       ui.error(Error_t::heaterOverheated);
     } //we don't clear this one - it could mean the SSR friedup or became uncontrollable otherwise
 
@@ -694,14 +714,20 @@ void loop()
 
   //some heuristics for heater temperature
   //when we cross the set point lower the heating output to not overshoot the upper hysteresis limit (too much)
-  if ((param.heatingMode * mainT) > (param.heatingMode * param.targetT)) {
-    targetHeaterT = param.targetT + 2*param.heatingMode*param.hysteresisT;
-  } else {
+  if (((param.heatingMode * mainT) >= (param.heatingMode * param.targetT))) {
+    targetHeaterT = param.targetT + param.heatingMode*param.stableHeaterOffset;
+    stableMode = 1;
+  } else if ( (stableMode>0) &&
+              ((param.heatingMode * mainT) <= (param.heatingMode * (param.targetT - (param.heatingMode*param.hysteresisT))))
+            ) {
+    targetHeaterT = param.limitHeaterT;
+    stableMode = -1;
+  } else if (stableMode < 0) {
     targetHeaterT = param.limitHeaterT;
   }
   if ((param.heatingMode*targetHeaterT) > (param.heatingMode*param.limitHeaterT)) {targetHeaterT = param.limitHeaterT;}
-  heaterMaxT = targetHeaterT + ((param.heatingMode > 0) ? 0 : 4*param.hysteresisT);
-  heaterMinT = targetHeaterT - ((param.heatingMode < 0) ? 0 : 4*param.hysteresisT);
+  heaterMaxT = targetHeaterT + ((param.heatingMode > 0) ? 0 : param.hysteresisT);
+  heaterMinT = targetHeaterT - ((param.heatingMode < 0) ? 0 : param.hysteresisT);
 
   //control the heater temperature
   if (devCountHeater == 0) {
