@@ -53,7 +53,7 @@ DeviceAddress addrRelay;
 RotaryEncoder encoder(encoderPin1, encoderPin2);
 
 volatile unsigned long bounceTimer{0};
-uint8_t modeButton[2] = {1};
+uint8_t modeButton[2] = {1,1};
 int8_t knobPosition[2] = {0,0};
 
 constexpr uint8_t nResolutionsT = 4;
@@ -530,7 +530,9 @@ void loop()
         param.criticalHeaterDeltaT += dir * stepT[param.iStepT];
         if (param.criticalHeaterDeltaT <= 2*param.hysteresisT) param.criticalHeaterDeltaT = 2*param.hysteresisT;
       case State_t::man:
-        
+        break;
+      case State_t::idle:
+        break;
       default:
         break;
     }
@@ -686,9 +688,16 @@ void loop()
     slopeT *= (mainT <= (param.targetT - param.hysteresisT)) ? -1 : 1;
   }
 
-  //TODO this does not need to be recalculated every time
-  heaterMaxT = param.limitHeaterT + (param.heatingMode > 0) ? 0 : 2*param.hysteresisT;
-  heaterMinT = param.limitHeaterT - (param.heatingMode < 0) ? 0 : 2*param.hysteresisT;
+  //some heuristics for heater temperature
+  //when we cross the set point lower the heating output to not overshoot the upper hysteresis limit (too much)
+  static int16_t targetHeaterT{param.limitHeaterT};
+  if ((param.heatingMode*mainT) > (param.heatingMode*param.targetT)) {
+    targetHeaterT = param.targetT + param.heatingMode*param.hysteresisT;
+  } else {
+    targetHeaterT = param.limitHeaterT;
+  }
+  heaterMaxT = targetHeaterT + (param.heatingMode > 0) ? 0 : 2*param.hysteresisT;
+  heaterMinT = targetHeaterT - (param.heatingMode < 0) ? 0 : 2*param.hysteresisT;
 
   //control the heater temperature
   if (devCountHeater == 0) {
