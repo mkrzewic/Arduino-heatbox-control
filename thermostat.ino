@@ -265,7 +265,7 @@ struct UI_t {
         break;
       case State_t::setLimitHeaterT:
         lcd.clearDisplay();
-        param.heatingMode>0 ? lcd.println(F("Max heater T")) : lcd.println(F("Min cooler T"));
+        param.heatingMode>0 ? lcd.println(F("Heater T")) : lcd.println(F("Cooler T"));
         lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.limitHeaterT, lcd, displayPrecision[param.iStepT]);
@@ -273,7 +273,6 @@ struct UI_t {
       case State_t::setCriticalHeaterDeltaT:
         lcd.clearDisplay();
         param.heatingMode>0 ? lcd.println(F("Heater critical")) : lcd.println(F("Cooler critical"));
-        lcd.println(F("T overshoot"));
         lcd.setCursor(0,40);
         lcd.setTextSize(largeTextSize);
         printDallasTempC(param.criticalHeaterDeltaT, lcd, displayPrecision[param.iStepT]);
@@ -692,10 +691,11 @@ void loop()
   //when we cross the set point lower the heating output to not overshoot the upper hysteresis limit (too much)
   static int16_t targetHeaterT{param.limitHeaterT};
   if ((param.heatingMode*mainT) > (param.heatingMode*param.targetT)) {
-    targetHeaterT = param.targetT + param.heatingMode*param.hysteresisT;
+    targetHeaterT = param.targetT + 2*param.heatingMode*param.hysteresisT;
   } else {
     targetHeaterT = param.limitHeaterT;
   }
+  if (param.heatingMode*targetHeaterT > param.limitHeaterT) {targetHeaterT = param.limitHeaterT;}
   heaterMaxT = targetHeaterT + (param.heatingMode > 0) ? 0 : 2*param.hysteresisT;
   heaterMinT = targetHeaterT - (param.heatingMode < 0) ? 0 : 2*param.hysteresisT;
 
